@@ -21,8 +21,8 @@ pub struct Resource {
 impl Resource {
     pub fn new(x: f64, y: f64) -> Self {
         let mut rng = thread_rng();
-        let initial_energy = rng.gen_range(20.0..80.0);
-        let max_energy = rng.gen_range(50.0..150.0);
+        let initial_energy = rng.gen_range(15.0..40.0); // Much lower initial energy
+        let max_energy = rng.gen_range(30.0..60.0); // Much lower max energy
 
         Self {
             x,
@@ -76,12 +76,17 @@ impl Resource {
                 }
             }
 
-            // Natural growth towards max energy (much slower)
+            // Natural growth towards max energy (much slower and limited)
             if self.energy < self.max_energy {
-                self.energy += self.growth_rate * delta_time * 0.1; // Reduced from 0.5
+                self.energy += self.growth_rate * delta_time * 0.05; // Even slower growth
                 if self.energy > self.max_energy {
                     self.energy = self.max_energy;
                 }
+            }
+            
+            // Stop growing once at max energy
+            if self.energy >= self.max_energy {
+                self.target_energy = self.max_energy; // Lock target to max
             }
         }
 
