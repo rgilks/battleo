@@ -152,8 +152,12 @@ impl BattleSimulation {
 
     fn render_webgl(&mut self) {
         if let Some(ref mut renderer) = self.webgl_renderer {
-            renderer.update_agents(&self.simulation.agents);
-            renderer.update_resources(&self.simulation.resources);
+            // Clone the data to avoid borrowing conflicts
+            let agents = self.simulation.agents.clone();
+            let resources = self.simulation.resources.clone();
+
+            renderer.update_agents(&agents);
+            renderer.update_resources(&resources);
             renderer.render();
 
             // Debug: Log rendering info only occasionally
@@ -165,8 +169,8 @@ impl BattleSimulation {
                     web_sys::console::log_1(
                         &format!(
                             "WebGL Rendering: {} agents, {} resources",
-                            self.simulation.agents.len(),
-                            self.simulation.resources.len()
+                            agents.len(),
+                            resources.len()
                         )
                         .into(),
                     );
@@ -255,6 +259,183 @@ impl BattleSimulation {
 #[wasm_bindgen]
 pub fn init_panic_hook() {
     console_error_panic_hook::set_once();
+}
+
+#[wasm_bindgen]
+pub fn init_rayon_pool() -> js_sys::Promise {
+    #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon"))]
+    {
+        use wasm_bindgen_rayon::init_thread_pool;
+
+        // Initialize with optimal worker count
+        let worker_count = 4; // Default to 4 workers
+
+        {
+            let closure = Closure::wrap(Box::new(move |result: JsValue| match result.as_f64() {
+                Some(_) => {
+                    web_sys::console::log_1(
+                        &format!(
+                            "Rayon thread pool initialized with {} workers",
+                            worker_count
+                        )
+                        .into(),
+                    );
+                }
+                None => {
+                    web_sys::console::log_1(
+                        &format!("Failed to initialize Rayon thread pool").into(),
+                    );
+                }
+            }) as Box<dyn FnMut(JsValue)>);
+
+            init_thread_pool(worker_count).then(&closure)
+        }
+    }
+
+    #[cfg(not(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon")))]
+    {
+        // For non-WASM targets, return a resolved promise
+        let promise = js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL);
+        promise
+    }
+}
+
+#[wasm_bindgen]
+pub struct ParallelProcessor {
+    initialized: bool,
+    worker_count: usize,
+}
+
+#[wasm_bindgen]
+impl ParallelProcessor {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        let worker_count = {
+            #[cfg(target_arch = "wasm32")]
+            {
+                // Default to 4 workers for WASM
+                4
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4)
+            }
+        };
+
+        Self {
+            initialized: false,
+            worker_count,
+        }
+    }
+
+    pub fn initialize(&mut self) -> js_sys::Promise {
+        #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon"))]
+        {
+            use wasm_bindgen_rayon::init_thread_pool;
+
+            {
+                let worker_count = self.worker_count;
+                let closure = Closure::wrap(
+                    Box::new(move |result: JsValue| match result.as_f64() {
+                        Some(_) => {
+                            web_sys::console::log_1(
+                                &format!("Thread pool initialized with {} workers", worker_count)
+                                    .into(),
+                            );
+                        }
+                        None => {
+                            web_sys::console::log_1(
+                                &format!("Failed to initialize thread pool - SharedArrayBuffer may not be available").into(),
+                            );
+                        }
+                    }) as Box<dyn FnMut(JsValue)>,
+                );
+
+                init_thread_pool(self.worker_count).then(&closure)
+            }
+        }
+
+        #[cfg(not(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon")))]
+        {
+            // For non-WASM targets, simulate initialization
+            self.initialized = true;
+            let promise = js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL);
+            promise
+        }
+    }
+
+    pub fn initialize_fallback(&mut self) -> js_sys::Promise {
+        // Fallback initialization that works without SharedArrayBuffer
+        web_sys::console::warn_1(&"Using fallback mode - SharedArrayBuffer not available".into());
+        self.initialized = true;
+        let promise = js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL);
+        promise
+    }
+
+    pub fn parallel_sum(&self, data: Vec<f64>) -> f64 {
+        if !self.initialized {
+            web_sys::console::warn_1(&"Thread pool not initialized, using sequential".into());
+            return data.iter().sum();
+        }
+
+        #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon"))]
+        {
+            use rayon::prelude::*;
+            data.par_iter().sum()
+        }
+
+        #[cfg(not(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon")))]
+        {
+            use rayon::prelude::*;
+            data.par_iter().sum()
+        }
+    }
+
+    pub fn parallel_map(&self, data: Vec<f64>) -> Vec<f64> {
+        if !self.initialized {
+            return data.iter().map(|x| x * 2.0).collect();
+        }
+
+        #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon"))]
+        {
+            use rayon::prelude::*;
+            data.par_iter().map(|x| x * 2.0).collect()
+        }
+
+        #[cfg(not(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon")))]
+        {
+            use rayon::prelude::*;
+            data.par_iter().map(|x| x * 2.0).collect()
+        }
+    }
+
+    pub fn complex_parallel_operation(&self, data: Vec<f64>) -> f64 {
+        if !self.initialized {
+            return data.iter().map(|x| x.powi(2)).sum::<f64>().sqrt();
+        }
+
+        #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon"))]
+        {
+            use rayon::prelude::*;
+            data.par_iter().map(|x| x.powi(2)).sum::<f64>().sqrt()
+        }
+
+        #[cfg(not(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon")))]
+        {
+            use rayon::prelude::*;
+            data.par_iter().map(|x| x.powi(2)).sum::<f64>().sqrt()
+        }
+    }
+
+    pub fn get_worker_count(&self) -> usize {
+        self.worker_count
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        self.initialized
+    }
 }
 
 #[cfg(test)]
