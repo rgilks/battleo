@@ -105,6 +105,14 @@ impl BattleSimulation {
         }
     }
 
+    pub fn is_rayon_available(&self) -> bool {
+        simulation::Simulation::is_rayon_available()
+    }
+
+    pub fn set_rayon_initialized(&self, initialized: bool) {
+        simulation::Simulation::set_rayon_initialized(initialized);
+    }
+
     pub fn force_webgl(&mut self) -> bool {
         // Try to force WebGL initialization
         match WebGlRenderer::new(self.canvas.clone()) {
@@ -262,48 +270,13 @@ pub fn init_panic_hook() {
 }
 
 #[wasm_bindgen]
-pub fn init_rayon_pool() -> js_sys::Promise {
-    #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon"))]
-    {
-        use wasm_bindgen_rayon::init_thread_pool;
-
-        // Initialize with optimal worker count
-        let worker_count = 4; // Default to 4 workers
-
-        {
-            let closure = Closure::wrap(Box::new(move |result: JsValue| match result.as_f64() {
-                Some(_) => {
-                    web_sys::console::log_1(
-                        &format!(
-                            "Rayon thread pool initialized with {} workers",
-                            worker_count
-                        )
-                        .into(),
-                    );
-                }
-                None => {
-                    web_sys::console::log_1(
-                        &format!("Failed to initialize Rayon thread pool").into(),
-                    );
-                }
-            }) as Box<dyn FnMut(JsValue)>);
-
-            init_thread_pool(worker_count).then(&closure)
-        }
-    }
-
-    #[cfg(not(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon")))]
-    {
-        // For non-WASM targets, return a resolved promise
-        let promise = js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL);
-        promise
-    }
-}
-
+// Removed init_rayon_pool function - using ParallelProcessor instead
 #[wasm_bindgen]
 pub struct ParallelProcessor {
     initialized: bool,
     worker_count: usize,
+    #[wasm_bindgen(skip)]
+    closure: Option<Closure<dyn FnMut(JsValue)>>,
 }
 
 #[wasm_bindgen]
@@ -327,6 +300,7 @@ impl ParallelProcessor {
         Self {
             initialized: false,
             worker_count,
+            closure: None,
         }
     }
 
@@ -335,25 +309,57 @@ impl ParallelProcessor {
         {
             use wasm_bindgen_rayon::init_thread_pool;
 
+            web_sys::console::log_1(
+                &format!(
+                    "Starting Rayon initialization with {} workers",
+                    self.worker_count
+                )
+                .into(),
+            );
+
+            // Check if already initialized
+            if self.initialized {
+                web_sys::console::warn_1(&"Thread pool already initialized".into());
+                simulation::Simulation::set_rayon_initialized(true);
+                return js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL);
+            }
+
             {
                 let worker_count = self.worker_count;
-                let closure = Closure::wrap(
-                    Box::new(move |result: JsValue| match result.as_f64() {
+                let closure = Closure::wrap(Box::new(move |result: JsValue| {
+                    web_sys::console::log_1(
+                        &format!("Rayon initialization callback received: {:?}", result).into(),
+                    );
+                    match result.as_f64() {
                         Some(_) => {
+                            simulation::Simulation::set_rayon_initialized(true);
                             web_sys::console::log_1(
                                 &format!("Thread pool initialized with {} workers", worker_count)
                                     .into(),
                             );
                         }
                         None => {
+                            simulation::Simulation::set_rayon_initialized(false);
                             web_sys::console::log_1(
-                                &format!("Failed to initialize thread pool - SharedArrayBuffer may not be available").into(),
-                            );
+                                    &format!("Failed to initialize thread pool - SharedArrayBuffer may not be available").into(),
+                                );
                         }
-                    }) as Box<dyn FnMut(JsValue)>,
-                );
+                    }
+                }) as Box<dyn FnMut(JsValue)>);
 
-                init_thread_pool(self.worker_count).then(&closure)
+                // Store the closure in the struct to prevent it from being dropped
+                self.closure = Some(closure);
+
+                // Get a reference to the stored closure
+                let closure_ref = self.closure.as_ref().unwrap();
+
+                // Create the promise with the stored closure
+                let promise = init_thread_pool(self.worker_count).then(closure_ref);
+
+                // Mark as initialized to prevent recursive calls
+                self.initialized = true;
+
+                promise
             }
         }
 
@@ -370,6 +376,7 @@ impl ParallelProcessor {
         // Fallback initialization that works without SharedArrayBuffer
         web_sys::console::warn_1(&"Using fallback mode - SharedArrayBuffer not available".into());
         self.initialized = true;
+        simulation::Simulation::set_rayon_initialized(false); // Set to false for fallback mode
         let promise = js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL);
         promise
     }

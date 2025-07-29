@@ -497,6 +497,44 @@
           </div>
 
           <div class="control-group">
+            <h3>Rayon Parallel Processing</h3>
+            <div
+              id="rayon-status"
+              style="font-size: 0.8em; color: #a0a0a0; margin-bottom: 8px"
+            >
+              Status: Checking...
+            </div>
+            <div class="button-group">
+              <button
+                id="init-rayon-btn"
+                class="btn btn-primary"
+                title="Initialize Rayon thread pool for parallel processing"
+              >
+                Initialize Rayon
+              </button>
+              <button
+                id="fallback-btn"
+                class="btn btn-warning"
+                title="Use fallback mode (sequential processing)"
+              >
+                Use Fallback
+              </button>
+            </div>
+            <div
+              id="rayon-info"
+              style="
+                font-size: 0.7em;
+                color: #4ecdc4;
+                margin-top: 8px;
+                display: none;
+              "
+            >
+              <div>Workers: <span id="worker-count">-</span></div>
+              <div>Mode: <span id="processing-mode">-</span></div>
+            </div>
+          </div>
+
+          <div class="control-group">
             <h3>Interaction</h3>
             <p style="font-size: 0.8em; color: #a0a0a0; margin-bottom: 8px">
               Click on the canvas to add agents or resources
@@ -580,12 +618,19 @@
               <li>Resources grow naturally over time</li>
               <li>Watch evolution in real-time!</li>
             </ul>
-            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
-              <div style="font-size: 0.8em; color: #4ecdc4;">
+            <div
+              style="
+                margin-top: 10px;
+                padding-top: 10px;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+              "
+            >
+              <div style="font-size: 0.8em; color: #4ecdc4">
                 Rendering: <span id="rendering-mode">Loading...</span>
               </div>
-              <div style="font-size: 0.7em; color: #a0a0a0; margin-top: 5px;">
-                WebGL provides better performance, but Canvas 2D works on all browsers
+              <div style="font-size: 0.7em; color: #a0a0a0; margin-top: 5px">
+                WebGL provides better performance, but Canvas 2D works on all
+                browsers
               </div>
             </div>
           </div>
@@ -608,15 +653,23 @@
     </div>
 
     <script type="module">
-      import init, { BattleSimulation } from "./pkg/battleo.js";
+      import init, {
+        BattleSimulation,
+        ParallelProcessor,
+      } from "./pkg/battleo.js";
 
       let simulation;
+      let parallelProcessor;
       let isRunning = false;
       let clickMode = "agent"; // 'agent' or 'resource'
+      let rayonInitialized = false;
 
       async function main() {
         try {
           await init();
+
+          // Initialize parallel processor
+          parallelProcessor = new ParallelProcessor();
 
           simulation = new BattleSimulation("simulation-canvas");
 
@@ -627,7 +680,11 @@
             .classList.remove("hidden");
 
           // Display rendering mode
-          document.getElementById("rendering-mode").textContent = simulation.get_rendering_mode();
+          document.getElementById("rendering-mode").textContent =
+            simulation.get_rendering_mode();
+
+          // Check Rayon status
+          checkRayonStatus();
 
           setupEventListeners();
           setupSidebarToggle();
@@ -645,7 +702,95 @@
         }
       }
 
+      function checkRayonStatus() {
+        const statusElement = document.getElementById("rayon-status");
+        const infoElement = document.getElementById("rayon-info");
+        const workerCountElement = document.getElementById("worker-count");
+        const processingModeElement =
+          document.getElementById("processing-mode");
+
+        // Check if SharedArrayBuffer is available
+        const hasSharedArrayBuffer = typeof SharedArrayBuffer !== "undefined";
+        const isCrossOriginIsolated = window.crossOriginIsolated;
+
+        if (hasSharedArrayBuffer && isCrossOriginIsolated) {
+          statusElement.textContent = "Status: Ready for parallel processing";
+          statusElement.style.color = "#4ecdc4";
+          workerCountElement.textContent = parallelProcessor.get_worker_count();
+          processingModeElement.textContent = "Parallel (Web Workers)";
+          infoElement.style.display = "block";
+        } else {
+          statusElement.textContent =
+            "Status: SharedArrayBuffer not available - using fallback";
+          statusElement.style.color = "#feca57";
+          workerCountElement.textContent = "1";
+          processingModeElement.textContent = "Sequential (Fallback)";
+          infoElement.style.display = "block";
+        }
+      }
+
       function setupEventListeners() {
+        // Rayon initialization
+        document
+          .getElementById("init-rayon-btn")
+          .addEventListener("click", async () => {
+            const btn = document.getElementById("init-rayon-btn");
+            const statusElement = document.getElementById("rayon-status");
+
+            btn.disabled = true;
+            btn.textContent = "Initializing...";
+            statusElement.textContent = "Status: Initializing thread pool...";
+
+            try {
+              await parallelProcessor.initialize();
+              rayonInitialized = true;
+              simulation.set_rayon_initialized(true);
+              statusElement.textContent = "Status: Parallel processing active!";
+              statusElement.style.color = "#4ecdc4";
+              btn.textContent = "Rayon Active";
+              btn.style.background = "linear-gradient(45deg, #00d2ff, #3a7bd5)";
+
+              // Update processing mode
+              document.getElementById("processing-mode").textContent =
+                "Parallel (Active)";
+
+              console.log("Rayon thread pool initialized successfully");
+            } catch (error) {
+              console.error("Failed to initialize Rayon:", error);
+              statusElement.textContent =
+                "Status: Initialization failed - using fallback";
+              statusElement.style.color = "#ff6b6b";
+              btn.textContent = "Initialize Rayon";
+              btn.disabled = false;
+            }
+          });
+
+        document
+          .getElementById("fallback-btn")
+          .addEventListener("click", async () => {
+            const statusElement = document.getElementById("rayon-status");
+            const btn = document.getElementById("fallback-btn");
+
+            try {
+              await parallelProcessor.initialize_fallback();
+              rayonInitialized = true;
+              simulation.set_rayon_initialized(false);
+              statusElement.textContent =
+                "Status: Using fallback mode (sequential)";
+              statusElement.style.color = "#feca57";
+              btn.textContent = "Fallback Active";
+              btn.style.background = "linear-gradient(45deg, #feca57, #ff9ff3)";
+
+              // Update processing mode
+              document.getElementById("processing-mode").textContent =
+                "Sequential (Fallback)";
+
+              console.log("Using fallback mode");
+            } catch (error) {
+              console.error("Failed to initialize fallback:", error);
+            }
+          });
+
         // Control buttons
         document.getElementById("start-btn").addEventListener("click", () => {
           if (!isRunning) {

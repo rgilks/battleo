@@ -2,18 +2,12 @@ use crate::agent::Agent;
 use crate::genes::Genes;
 use crate::resource::Resource;
 use rand::prelude::*;
-use rand_distr::{Normal, Uniform};
 use rayon::prelude::*;
 use serde::Serialize;
-use std::sync::{Arc, Mutex, Once};
-use wasm_bindgen::closure::Closure;
+use std::sync::Arc;
 
-// Optional wasm-bindgen-rayon support
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon"))]
-use wasm_bindgen_rayon::init_thread_pool;
-
-static INIT: Once = Once::new();
 static mut THREAD_POOL_AVAILABLE: bool = false;
+static mut RAYON_INITIALIZED: bool = false;
 
 #[derive(Clone, Serialize)]
 pub struct SimulationStats {
@@ -47,65 +41,17 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    pub fn new(width: f64, height: f64) -> Self {
-        // Initialize thread pool
-        INIT.call_once(|| {
-            // Try to initialize thread pool for native targets
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                if let Err(e) = rayon::ThreadPoolBuilder::new()
-                    .num_threads(8)
-                    .build_global()
-                {
-                    unsafe {
-                        THREAD_POOL_AVAILABLE = false;
-                    }
-                    eprintln!("Failed to initialize thread pool: {:?}", e);
-                } else {
-                    unsafe {
-                        THREAD_POOL_AVAILABLE = true;
-                    }
-                    println!("Thread pool initialized successfully");
-                }
-            }
-            #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon"))]
-            {
-                // Use wasm-bindgen-rayon for WebAssembly
-                {
-                    let closure = Closure::wrap(Box::new(|result: wasm_bindgen::JsValue| {
-                        match result.as_f64() {
-                            Some(_) => {
-                                unsafe {
-                                    THREAD_POOL_AVAILABLE = true;
-                                }
-                                web_sys::console::log_1(
-                                    &"Thread pool initialized successfully".into(),
-                                );
-                            }
-                            None => {
-                                unsafe {
-                                    THREAD_POOL_AVAILABLE = false;
-                                }
-                                web_sys::console::log_1(&"Failed to initialize thread pool".into());
-                            }
-                        }
-                    })
-                        as Box<dyn FnMut(wasm_bindgen::JsValue)>);
+    pub fn is_rayon_available() -> bool {
+        unsafe { THREAD_POOL_AVAILABLE && RAYON_INITIALIZED }
+    }
 
-                    init_thread_pool(8).then(&closure);
-                }
-            }
-            #[cfg(all(target_arch = "wasm32", not(feature = "wasm-bindgen-rayon")))]
-            {
-                // For WebAssembly without wasm-bindgen-rayon, disable parallel processing
-                unsafe {
-                    THREAD_POOL_AVAILABLE = false;
-                }
-                web_sys::console::log_1(
-                    &"Parallel processing disabled in WebAssembly (no wasm-bindgen-rayon)".into(),
-                );
-            }
-        });
+    pub fn set_rayon_initialized(initialized: bool) {
+        unsafe { RAYON_INITIALIZED = initialized; }
+    }
+
+    pub fn new(width: f64, height: f64) -> Self {
+        // Note: Thread pool initialization is handled separately via the ParallelProcessor
+        // This prevents recursive initialization issues during simulation construction
 
         // Initialize spatial grid for efficient neighbor lookups
         let grid_cell_size = 50.0; // Cell size for spatial partitioning
@@ -207,7 +153,7 @@ impl Simulation {
         self.update_spatial_grid();
 
         // Update resources
-        if unsafe { THREAD_POOL_AVAILABLE } {
+        if Self::is_rayon_available() {
             self.resources.par_iter_mut().for_each(|resource| {
                 resource.update(delta_time);
             });
@@ -226,7 +172,7 @@ impl Simulation {
         }
 
         // Update agents
-        if unsafe { THREAD_POOL_AVAILABLE } {
+        if Self::is_rayon_available() {
             let resources = Arc::new(self.resources.clone());
             let agent_updates: Vec<_> = self
                 .agents
@@ -274,7 +220,7 @@ impl Simulation {
         }
 
         // Handle reproduction
-        if unsafe { THREAD_POOL_AVAILABLE } {
+        if Self::is_rayon_available() {
             // Process reproduction in parallel
             let reproduction_results: Vec<_> = self
                 .agents
@@ -710,7 +656,7 @@ impl Simulation {
             total_kills,
             max_generation,
             total_fitness,
-        ) = if unsafe { THREAD_POOL_AVAILABLE } {
+        ) = if Self::is_rayon_available() {
             // Parallel processing with wasm_bindgen_rayon
             self.agents
                 .par_iter()

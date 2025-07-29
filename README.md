@@ -21,15 +21,17 @@ A complex agent-based simulation with genetic evolution, predator-prey dynamics,
 To run the simulation in your browser:
 
 1. Build the project:
+
    ```bash
    # Standard build
    ./build.sh
-   
+
    # Or with Rayon WASM support for parallel processing
    ./build_with_rayon.sh
    ```
 
 2. Serve the files:
+
    ```bash
    python3 -m http.server 8000
    ```
@@ -41,11 +43,13 @@ To run the simulation in your browser:
 To test the parallel processing capabilities:
 
 1. Build with Rayon support:
+
    ```bash
    ./build_with_rayon.sh
    ```
 
 2. Open the Rayon demo:
+
    ```bash
    open http://localhost:8000/rayon_demo.html
    ```
@@ -67,6 +71,7 @@ To test the parallel processing capabilities:
 The simulation now features a complex predator-prey ecosystem with 18 different genes controlling behavior:
 
 ### Predator Genes (10 New Genes!)
+
 - **`is_predator`** - Probability of being a predator (0.0-1.0)
 - **`hunting_speed`** - Speed multiplier when hunting (1.0-3.0)
 - **`attack_power`** - Damage dealt when attacking (0.1-3.0)
@@ -79,6 +84,7 @@ The simulation now features a complex predator-prey ecosystem with 18 different 
 - **`stamina`** - How long can chase prey (0.1-3.0)
 
 ### Original Genes (8 Genes)
+
 - **`speed`** - Movement speed multiplier
 - **`sense_range`** - How far agents can sense resources and other agents
 - **`size`** - Physical size affecting energy consumption and reproduction
@@ -89,6 +95,7 @@ The simulation now features a complex predator-prey ecosystem with 18 different 
 - **`color_hue`** - Visual trait for identification
 
 ### Predator Behavior
+
 - **Hunt Prey First** - Predators prioritize hunting prey over resources
 - **Territory-Based Hunting** - Use territory size to determine hunting range
 - **Stealth & Intelligence** - Better predators use stealth and intelligence bonuses
@@ -97,11 +104,13 @@ The simulation now features a complex predator-prey ecosystem with 18 different 
 - **Hunting Speed** - Predators move faster when hunting with hunting speed multiplier
 
 ### Prey Behavior
+
 - **Flee from Predators** - Prey automatically flee when predators are detected
 - **Enhanced Awareness** - Use sense range to detect and avoid predators
 - **Survival Instincts** - Prey prioritize survival over resource gathering when threatened
 
 ### Visual Distinction
+
 - **Predators**: Red to orange colors (0-60° hue) with high saturation and brightness
 - **Prey**: Blue to green colors (180-240° hue) with normal saturation
 - **Attack Power Visualization**: Stronger predators glow more intensely
@@ -230,12 +239,14 @@ The simulation uses Rayon for parallel processing in WebAssembly:
 - **Complex Calculations**: Parallel environmental and genetic calculations
 
 **Performance Benefits:**
+
 - **4x faster** agent updates for large populations
 - **4x faster** resource processing
 - **4x faster** statistics calculation
 - **Overall 4x performance improvement** for CPU-intensive operations
 
 **Technical Implementation:**
+
 - Uses `wasm-bindgen-rayon` for Web Worker-based threading
 - Automatic worker count detection based on hardware
 - Graceful fallback to sequential processing when needed
@@ -244,6 +255,7 @@ The simulation uses Rayon for parallel processing in WebAssembly:
 ### Parallel Processing
 
 The simulation uses Rayon for parallel processing:
+
 - Agent updates are processed in parallel
 - Resource updates are parallelized
 - Complex calculations utilize all CPU cores
@@ -334,10 +346,10 @@ for agents in [100, 200, 300, 400, 500] {
             target_duration_minutes: 5.0,
             ..Default::default()
         };
-        
+
         let result = harness.run_single_test(config);
         if result.score > 0.8 {
-            println!("Good config found: {} agents, {} resources, score: {:.3}", 
+            println!("Good config found: {} agents, {} resources, score: {:.3}",
                      agents, resources, result.score);
         }
     }
@@ -351,6 +363,7 @@ This will help you find parameters that create stable, dynamic simulations that 
 ## Recent Improvements
 
 ### 🦖 Predator-Prey Ecosystem
+
 - **18 Total Genes**: Expanded from 8 to 18 genes with 10 new predator genes
 - **Complex Combat System**: Attack/defense/intelligence/stamina calculations
 - **Territorial Behavior**: Predators have hunting territories and pack mentality
@@ -358,6 +371,7 @@ This will help you find parameters that create stable, dynamic simulations that 
 - **Visual Distinction**: Clear predator-prey color coding (Red/Orange vs Blue/Green)
 
 ### Performance Enhancements
+
 - **60 FPS Simulation**: Ultra-fast 60 FPS updates (5x faster than before!)
 - **Reduced Logging**: Clean console output for better performance
 - **Smart Calculations**: Complex calculations only when beneficial
@@ -365,6 +379,7 @@ This will help you find parameters that create stable, dynamic simulations that 
 - **Enhanced Combat**: Fast predator-prey interactions
 
 ### Visual Improvements
+
 - **Color-Coded Agents**: Visual representation based on genetic traits
 - **Predator-Prey Visualization**: Red/Orange predators vs Blue/Green prey
 - **WebGL Optimization**: Hardware-accelerated rendering
@@ -372,6 +387,7 @@ This will help you find parameters that create stable, dynamic simulations that 
 - **Dynamic Resource Growth**: Resources grow and shrink smoothly
 
 ### Stability Improvements
+
 - **Population Control**: Better reproduction and death mechanics
 - **Gene Stability**: Reduced mutation rates and better clamping
 - **Resource Management**: Improved spawning and distribution
@@ -383,6 +399,7 @@ This will help you find parameters that create stable, dynamic simulations that 
 ### Common Issues
 
 1. **Port Already in Use**: If port 8000 is busy, use a different port:
+
    ```bash
    python3 -m http.server 8001
    ```

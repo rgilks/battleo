@@ -6,7 +6,7 @@
 echo "🚀 Starting HTTP server for Rayon WASM Demo..."
 echo ""
 echo "📋 Important: This server includes CORS headers for SharedArrayBuffer support"
-echo "🌐 Open your browser and navigate to: http://localhost:8000/rayon_demo.html"
+echo "🌐 Open your browser and navigate to: http://localhost:8000/"
 echo ""
 echo "⚠️  Note: SharedArrayBuffer requires cross-origin isolation policies"
 echo "   The server is configured with proper headers for SharedArrayBuffer support"
@@ -50,7 +50,7 @@ const server = http.createServer((req, res) => {
     
     let filePath = '.' + req.url;
     if (filePath === './') {
-        filePath = './rayon_demo.html';
+        filePath = './index.html';
     }
     
     const extname = path.extname(filePath);
