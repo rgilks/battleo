@@ -33,6 +33,10 @@ pub struct Simulation {
     pub resource_spawn_timer: f64,
     pub max_agents: usize,
     pub max_resources: usize,
+    grid_cell_size: f64,
+    grid_width: usize,
+    grid_height: usize,
+    spatial_grid: Vec<Vec<Vec<usize>>>, // Grid of agent indices
 }
 
 impl Simulation {
@@ -41,6 +45,12 @@ impl Simulation {
         let _ = ThreadPoolBuilder::new()
             .num_threads(8) // Use all 8 performance cores
             .build_global();
+
+        // Initialize spatial grid for efficient neighbor lookups
+        let grid_cell_size = 50.0; // Cell size for spatial partitioning
+        let grid_width = (width / grid_cell_size).ceil() as usize;
+        let grid_height = (height / grid_cell_size).ceil() as usize;
+        let spatial_grid = vec![vec![Vec::new(); grid_height]; grid_width];
 
         let mut simulation = Self {
             agents: Vec::new(),
@@ -51,12 +61,55 @@ impl Simulation {
             resource_spawn_timer: 0.0,
             max_agents: 10000,   // Increased from 5000 - twice as many agents
             max_resources: 1500, // Reduced from 3000 - less food to prevent overcrowding
+            grid_cell_size,
+            grid_width,
+            grid_height,
+            spatial_grid,
         };
 
         // Initialize with some agents and resources
         simulation.spawn_initial_population();
 
         simulation
+    }
+
+    fn get_grid_position(&self, x: f64, y: f64) -> (usize, usize) {
+        let grid_x = (x / self.grid_cell_size).floor() as usize;
+        let grid_y = (y / self.grid_cell_size).floor() as usize;
+        (grid_x.min(self.grid_width - 1), grid_y.min(self.grid_height - 1))
+    }
+
+    fn get_nearby_agents(&self, x: f64, y: f64, radius: f64) -> Vec<usize> {
+        let mut nearby = Vec::new();
+        let (center_x, center_y) = self.get_grid_position(x, y);
+        let grid_radius = (radius / self.grid_cell_size).ceil() as usize;
+
+        for dx in -(grid_radius as i32)..=(grid_radius as i32) {
+            for dy in -(grid_radius as i32)..=(grid_radius as i32) {
+                let grid_x = (center_x as i32 + dx) as usize;
+                let grid_y = (center_y as i32 + dy) as usize;
+                
+                if grid_x < self.grid_width && grid_y < self.grid_height {
+                    nearby.extend(&self.spatial_grid[grid_x][grid_y]);
+                }
+            }
+        }
+        nearby
+    }
+
+    fn update_spatial_grid(&mut self) {
+        // Clear the grid
+        for x in 0..self.grid_width {
+            for y in 0..self.grid_height {
+                self.spatial_grid[x][y].clear();
+            }
+        }
+
+        // Populate the grid with agent indices
+        for (i, agent) in self.agents.iter().enumerate() {
+            let (grid_x, grid_y) = self.get_grid_position(agent.x, agent.y);
+            self.spatial_grid[grid_x][grid_y].push(i);
+        }
     }
 
     fn spawn_initial_population(&mut self) {
@@ -85,6 +138,9 @@ impl Simulation {
     pub fn update(&mut self) {
         let delta_time = 1.0 / 60.0; // Much faster simulation (60 FPS instead of 12 FPS)
         self.time += delta_time;
+
+        // Update spatial grid for efficient neighbor lookups
+        self.update_spatial_grid();
 
         // Update resources in parallel
         self.update_resources_parallel(delta_time);
@@ -217,67 +273,59 @@ impl Simulation {
     }
 
     fn perform_complex_calculations(&mut self) {
-        // Efficient parallel calculations to utilize all 8 performance cores
+        // Efficient parallel calculations using spatial grid
         let num_agents = self.agents.len();
         let num_resources = self.resources.len();
 
         // Only perform calculations if we have enough entities
         if num_agents > 10 && num_resources > 10 {
-            // Enhanced agent-to-agent interaction calculations with more work
-            let agent_positions: Vec<_> = self
-                .agents
-                .par_iter()
-                .map(|agent| (agent.x, agent.y, agent.energy, agent.genes.speed))
-                .collect();
-
-            // Calculate efficient interaction matrices in parallel
-            let interaction_matrix: Vec<_> = agent_positions
-                .par_iter()
-                .enumerate()
-                .map(|(i, &(x1, y1, energy1, speed1))| {
-                    let mut interactions = Vec::new();
-                    
-                    for (j, &(x2, y2, energy2, speed2)) in agent_positions.iter().enumerate() {
-                        if i != j {
-                            let distance = ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt();
-                            if distance < 100.0 { // Reasonable interaction range
-                                // Efficient interaction calculation
-                                let force = 1.0 / (distance * distance + 1.0);
-                                let energy_factor = (energy1 + energy2) / 200.0;
-                                let speed_factor = (speed1 + speed2) / 2.0;
-                                let combined_force = force * energy_factor * speed_factor;
-
-                                let angle = (y2 - y1).atan2(x2 - x1);
-                                let fx = combined_force * angle.cos();
-                                let fy = combined_force * angle.sin();
-
-                                // Simple interaction types
-                                let repulsion = if distance < 10.0 { 1.0 / distance } else { 0.0 };
-                                let attraction = if distance > 20.0 && distance < 80.0 {
-                                    0.1 / distance
-                                } else {
-                                    0.0
-                                };
-
-                                interactions.push((j, fx, fy, repulsion, attraction));
-                            }
-                        }
-                    }
-                    interactions
-                })
-                .collect();
-
-            // Apply efficient interaction forces in parallel
+            // Use spatial grid for efficient neighbor lookups - O(n) instead of O(n²)
+            // Collect all agent positions and nearby indices first to avoid borrowing issues
+            let agent_positions: Vec<_> = self.agents.iter().map(|a| (a.x, a.y, a.energy, a.genes.speed)).collect();
+            let nearby_indices: Vec<_> = self.agents.iter().map(|agent| self.get_nearby_agents(agent.x, agent.y, 100.0)).collect();
+            
             self.agents
                 .par_iter_mut()
                 .enumerate()
                 .for_each(|(i, agent)| {
-                    if i < interaction_matrix.len() {
-                        for (_, fx, fy, repulsion, attraction) in &interaction_matrix[i] {
-                            agent.dx += fx * 0.001 + repulsion * 0.01 - attraction * 0.005;
-                            agent.dy += fy * 0.001 + repulsion * 0.01 - attraction * 0.005;
+                    let mut total_fx = 0.0;
+                    let mut total_fy = 0.0;
+
+                    if i < nearby_indices.len() {
+                        for &j in &nearby_indices[i] {
+                            if i != j && j < agent_positions.len() {
+                                let (other_x, other_y, other_energy, other_speed) = agent_positions[j];
+                                let distance = ((agent.x - other_x).powi(2) + (agent.y - other_y).powi(2)).sqrt();
+                                
+                                if distance < 100.0 && distance > 0.0 {
+                                    // Efficient interaction calculation
+                                    let force = 1.0 / (distance * distance + 1.0);
+                                    let energy_factor = (agent.energy + other_energy) / 200.0;
+                                    let speed_factor = (agent.genes.speed + other_speed) / 2.0;
+                                    let combined_force = force * energy_factor * speed_factor;
+
+                                    let angle = (other_y - agent.y).atan2(other_x - agent.x);
+                                    let fx = combined_force * angle.cos();
+                                    let fy = combined_force * angle.sin();
+
+                                    // Simple interaction types
+                                    let repulsion = if distance < 10.0 { 1.0 / distance } else { 0.0 };
+                                    let attraction = if distance > 20.0 && distance < 80.0 {
+                                        0.1 / distance
+                                    } else {
+                                        0.0
+                                    };
+
+                                    total_fx += fx * 0.001 + repulsion * 0.01 - attraction * 0.005;
+                                    total_fy += fy * 0.001 + repulsion * 0.01 - attraction * 0.005;
+                                }
+                            }
                         }
                     }
+
+                    // Apply accumulated forces
+                    agent.dx += total_fx;
+                    agent.dy += total_fy;
                 });
         }
 
