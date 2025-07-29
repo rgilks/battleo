@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Battleo - Evolutionary Battle Simulation</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(
+          135deg,
+          #0f0f23 0%,
+          #1a1a2e 50%,
+          #16213e 100%
+        );
+        color: #ffffff;
+        overflow: hidden;
+        height: 100vh;
+      }
+
+      .container {
+        display: flex;
+        height: 100vh;
+        max-width: 100vw;
+        overflow: hidden;
+      }
+
+      .sidebar {
+        width: 280px;
+        background: rgba(26, 26, 46, 0.95);
+        backdrop-filter: blur(10px);
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        flex-direction: column;
+        transition: transform 0.3s ease;
+        position: relative;
+      }
+
+      .sidebar.collapsed {
+        transform: translateX(-100%);
+      }
+
+      .sidebar-header {
+        padding: 15px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .sidebar-title {
+        font-size: 1.2em;
+        font-weight: 700;
+        background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1);
+        background-size: 200% 200%;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        animation: gradient 3s ease infinite;
+      }
+
+      .toggle-btn {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.8em;
+        transition: all 0.3s ease;
+      }
+
+      .toggle-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      .sidebar-content {
+        flex: 1;
+        padding: 15px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        overflow-y: auto;
+      }
+
+      .main-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        position: relative;
+      }
+
+      .fullscreen-overlay {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 1000;
+        display: none;
+      }
+
+      .fullscreen-overlay.visible {
+        display: block;
+      }
+
+      .title {
+        font-size: clamp(1.5em, 4vw, 2.5em);
+        font-weight: 700;
+        background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1);
+        background-size: 200% 200%;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        animation: gradient 3s ease infinite;
+        text-align: center;
+      }
+
+      @keyframes gradient {
+        0% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+        100% {
+          background-position: 0% 50%;
+        }
+      }
+
+      .subtitle {
+        text-align: center;
+        color: #a0a0a0;
+        margin-top: 5px;
+        font-size: clamp(0.8em, 2vw, 1.1em);
+      }
+
+      .canvas-container {
+        flex: 1;
+        position: relative;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overflow: hidden;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(26, 26, 46, 0.8) 0%,
+          rgba(15, 15, 35, 0.95) 100%
+        );
+      }
+
+      #simulation-canvas {
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+        box-shadow:
+          0 0 30px rgba(0, 0, 0, 0.5),
+          inset 0 0 20px rgba(255, 255, 255, 0.05);
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        transition: all 0.3s ease;
+      }
+
+      #simulation-canvas:hover {
+        border-color: rgba(78, 205, 196, 0.4);
+        box-shadow:
+          0 0 40px rgba(78, 205, 196, 0.2),
+          inset 0 0 20px rgba(255, 255, 255, 0.05);
+      }
+
+      .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+      }
+
+      .control-group {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        flex-shrink: 0;
+      }
+
+      .control-group h3 {
+        margin-bottom: 10px;
+        color: #4ecdc4;
+        font-size: 1.1em;
+      }
+
+      .button-group {
+        display: flex;
+        gap: 10px;
+      }
+
+      .btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        flex: 1;
+        font-size: 0.9em;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .btn::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.2),
+          transparent
+        );
+        transition: left 0.5s;
+      }
+
+      .btn:hover::before {
+        left: 100%;
+      }
+
+      .btn-primary {
+        background: linear-gradient(45deg, #4ecdc4, #45b7d1);
+        color: white;
+        box-shadow: 0 2px 10px rgba(78, 205, 196, 0.3);
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(78, 205, 196, 0.4);
+      }
+
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+
+      .btn-secondary {
+        background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+        color: white;
+        box-shadow: 0 2px 10px rgba(255, 107, 107, 0.3);
+      }
+
+      .btn-secondary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
+      }
+
+      .btn-secondary:active {
+        transform: translateY(0);
+      }
+
+      .btn-warning {
+        background: linear-gradient(45deg, #feca57, #ff9ff3);
+        color: #2c3e50;
+        box-shadow: 0 2px 10px rgba(254, 202, 87, 0.3);
+      }
+
+      .btn-warning:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(254, 202, 87, 0.4);
+      }
+
+      .btn-warning:active {
+        transform: translateY(0);
+      }
+
+      .btn.running {
+        background: linear-gradient(45deg, #00d2ff, #3a7bd5);
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 2px 10px rgba(0, 210, 255, 0.3);
+        }
+        50% {
+          box-shadow: 0 2px 20px rgba(0, 210, 255, 0.6);
+        }
+        100% {
+          box-shadow: 0 2px 10px rgba(0, 210, 255, 0.3);
+        }
+      }
+
+      @keyframes clickEffect {
+        0% {
+          transform: scale(0);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(1.5);
+          opacity: 0.7;
+        }
+        100% {
+          transform: scale(2);
+          opacity: 0;
+        }
+      }
+
+      .stats {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        flex-shrink: 0;
+      }
+
+      .stat-card {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        flex-shrink: 0;
+      }
+
+      .stat-card h4 {
+        color: #4ecdc4;
+        margin-bottom: 8px;
+        font-size: 0.9em;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .stat-value {
+        font-size: 1.5em;
+        font-weight: 700;
+        color: #ffffff;
+      }
+
+      .stat-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .stat-item {
+        text-align: center;
+      }
+
+      .stat-item .label {
+        font-size: 0.8em;
+        color: #a0a0a0;
+        margin-bottom: 5px;
+      }
+
+      .stat-item .value {
+        font-size: 1.2em;
+        font-weight: 600;
+        color: #4ecdc4;
+      }
+
+      .instructions {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 0.8em;
+        line-height: 1.4;
+        flex-shrink: 0;
+      }
+
+      .instructions h4 {
+        color: #ff6b6b;
+        margin-bottom: 10px;
+      }
+
+      .instructions ul {
+        list-style: none;
+        padding-left: 0;
+      }
+
+      .instructions li {
+        margin-bottom: 5px;
+        padding-left: 15px;
+        position: relative;
+      }
+
+      .instructions li:before {
+        content: "•";
+        color: #4ecdc4;
+        position: absolute;
+        left: 0;
+      }
+
+      .loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        z-index: 1000;
+      }
+
+      .spinner {
+        border: 4px solid rgba(255, 255, 255, 0.1);
+        border-left: 4px solid #4ecdc4;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      /* Responsive design for smaller screens */
+      @media (max-width: 768px) {
+        .container {
+          flex-direction: column;
+        }
+
+        .sidebar {
+          width: 100%;
+          height: auto;
+          max-height: 50vh;
+          overflow-y: auto;
+          transform: none !important;
+        }
+
+        .sidebar.collapsed {
+          transform: translateY(-100%) !important;
+        }
+
+        .main-content {
+          height: 50vh;
+        }
+
+        .fullscreen-overlay {
+          display: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-title">Battleo</div>
+          <button class="toggle-btn" id="toggle-sidebar">☰</button>
+        </div>
+        <div class="sidebar-content">
+          <div class="control-group">
+            <h3>Simulation Controls</h3>
+            <div class="button-group">
+              <button
+                id="start-btn"
+                class="btn btn-primary"
+                title="Start the simulation"
+              >
+                Start
+              </button>
+              <button
+                id="stop-btn"
+                class="btn btn-secondary"
+                title="Stop the simulation"
+              >
+                Stop
+              </button>
+            </div>
+            <div class="button-group" style="margin-top: 8px">
+              <button
+                id="step-btn"
+                class="btn btn-warning"
+                title="Advance simulation by one step"
+              >
+                Step
+              </button>
+              <button
+                id="reset-btn"
+                class="btn btn-secondary"
+                title="Reset simulation to initial state"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <h3>Interaction</h3>
+            <p style="font-size: 0.8em; color: #a0a0a0; margin-bottom: 8px">
+              Click on the canvas to add agents or resources
+            </p>
+            <div class="button-group">
+              <button
+                id="add-agent-btn"
+                class="btn btn-primary"
+                title="Click to add agents on canvas"
+              >
+                Add Agent
+              </button>
+              <button
+                id="add-resource-btn"
+                class="btn btn-warning"
+                title="Click to add resources on canvas"
+              >
+                Add Resource
+              </button>
+            </div>
+          </div>
+
+          <div class="stats">
+            <div class="stat-card">
+              <h4>Population</h4>
+              <div class="stat-grid">
+                <div class="stat-item">
+                  <div class="label">Agents</div>
+                  <div id="agent-count" class="value">0</div>
+                </div>
+                <div class="stat-item">
+                  <div class="label">Resources</div>
+                  <div id="resource-count" class="value">0</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <h4>Evolution</h4>
+              <div class="stat-grid">
+                <div class="stat-item">
+                  <div class="label">Generation</div>
+                  <div id="max-generation" class="value">0</div>
+                </div>
+                <div class="stat-item">
+                  <div class="label">Avg Age</div>
+                  <div id="avg-age" class="value">0</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <h4>Performance</h4>
+              <div class="stat-grid">
+                <div class="stat-item">
+                  <div class="label">Total Energy</div>
+                  <div id="total-energy" class="value">0</div>
+                </div>
+                <div class="stat-item">
+                  <div class="label">Total Kills</div>
+                  <div id="total-kills" class="value">0</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="stat-card">
+              <h4>Fitness</h4>
+              <div class="stat-item">
+                <div class="label">Average Fitness</div>
+                <div id="avg-fitness" class="value">0</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="instructions">
+            <h4>How it works</h4>
+            <ul>
+              <li>Agents compete for resources and each other</li>
+              <li>Genes affect speed, size, aggression, and more</li>
+              <li>Successful agents reproduce with mutations</li>
+              <li>Resources grow naturally over time</li>
+              <li>Watch evolution in real-time!</li>
+            </ul>
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+              <div style="font-size: 0.8em; color: #4ecdc4;">
+                Rendering: <span id="rendering-mode">Loading...</span>
+              </div>
+              <div style="font-size: 0.7em; color: #a0a0a0; margin-top: 5px;">
+                WebGL provides better performance, but Canvas 2D works on all browsers
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="main-content">
+        <div class="fullscreen-overlay" id="fullscreen-overlay">
+          <button class="toggle-btn" id="show-sidebar">☰ Menu</button>
+        </div>
+
+        <div class="canvas-container">
+          <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading simulation...</p>
+          </div>
+          <canvas id="simulation-canvas" class="hidden"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <script type="module">
+      import init, { BattleSimulation } from "./pkg/battleo.js";
+
+      let simulation;
+      let isRunning = false;
+      let clickMode = "agent"; // 'agent' or 'resource'
+
+      async function main() {
+        try {
+          await init();
+
+          simulation = new BattleSimulation("simulation-canvas");
+
+          // Hide loading, show canvas
+          document.getElementById("loading").classList.add("hidden");
+          document
+            .getElementById("simulation-canvas")
+            .classList.remove("hidden");
+
+          // Display rendering mode
+          document.getElementById("rendering-mode").textContent = simulation.get_rendering_mode();
+
+          setupEventListeners();
+          setupSidebarToggle();
+          startStatsUpdate();
+        } catch (error) {
+          console.error("Failed to initialize simulation:", error);
+          document.getElementById("loading").innerHTML = `
+                    <div style="color: #ff6b6b;">
+                        <h3>Failed to load simulation</h3>
+                        <p>${error.message}</p>
+                        <p>Make sure to build the project with: wasm-pack build --target web</p>
+                        <p>WebGL may not be supported in your browser.</p>
+                    </div>
+                `;
+        }
+      }
+
+      function setupEventListeners() {
+        // Control buttons
+        document.getElementById("start-btn").addEventListener("click", () => {
+          if (!isRunning) {
+            simulation.start();
+            isRunning = true;
+            document.getElementById("start-btn").textContent = "Running...";
+            document.getElementById("start-btn").classList.add("running");
+            // Start animation loop
+            animate();
+          }
+        });
+
+        document.getElementById("stop-btn").addEventListener("click", () => {
+          if (isRunning) {
+            simulation.stop();
+            isRunning = false;
+            document.getElementById("start-btn").textContent = "Start";
+            document.getElementById("start-btn").classList.remove("running");
+          }
+        });
+
+        document.getElementById("step-btn").addEventListener("click", () => {
+          simulation.step();
+        });
+
+        document.getElementById("reset-btn").addEventListener("click", () => {
+          simulation.reset();
+          updateStats();
+        });
+
+        // Interaction buttons
+        document
+          .getElementById("add-agent-btn")
+          .addEventListener("click", () => {
+            clickMode = "agent";
+            updateClickModeUI();
+          });
+
+        document
+          .getElementById("add-resource-btn")
+          .addEventListener("click", () => {
+            clickMode = "resource";
+            updateClickModeUI();
+          });
+
+        // Canvas click handling
+        const canvas = document.getElementById("simulation-canvas");
+        canvas.addEventListener("click", (event) => {
+          const rect = canvas.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          const y = event.clientY - rect.top;
+
+          // Add visual feedback
+          createClickEffect(event.clientX, event.clientY);
+
+          if (clickMode === "agent") {
+            simulation.add_agent(x, y);
+          } else {
+            simulation.add_resource(x, y);
+          }
+        });
+
+        // Add cursor feedback
+        canvas.addEventListener("mousemove", (event) => {
+          if (clickMode === "agent") {
+            canvas.style.cursor = "crosshair";
+          } else {
+            canvas.style.cursor = "pointer";
+          }
+        });
+      }
+
+      function updateClickModeUI() {
+        const agentBtn = document.getElementById("add-agent-btn");
+        const resourceBtn = document.getElementById("add-resource-btn");
+
+        if (clickMode === "agent") {
+          agentBtn.style.background =
+            "linear-gradient(45deg, #4ecdc4, #45b7d1)";
+          resourceBtn.style.background =
+            "linear-gradient(45deg, #feca57, #ff9ff3)";
+        } else {
+          agentBtn.style.background =
+            "linear-gradient(45deg, #feca57, #ff9ff3)";
+          resourceBtn.style.background =
+            "linear-gradient(45deg, #4ecdc4, #45b7d1)";
+        }
+      }
+
+      function createClickEffect(x, y) {
+        const effect = document.createElement("div");
+        effect.style.position = "fixed";
+        effect.style.left = x - 10 + "px";
+        effect.style.top = y - 10 + "px";
+        effect.style.width = "20px";
+        effect.style.height = "20px";
+        effect.style.borderRadius = "50%";
+        effect.style.background =
+          clickMode === "agent"
+            ? "radial-gradient(circle, rgba(78, 205, 196, 0.8) 0%, transparent 70%)"
+            : "radial-gradient(circle, rgba(254, 202, 87, 0.8) 0%, transparent 70%)";
+        effect.style.pointerEvents = "none";
+        effect.style.zIndex = "1000";
+        effect.style.animation = "clickEffect 0.6s ease-out forwards";
+
+        document.body.appendChild(effect);
+
+        setTimeout(() => {
+          document.body.removeChild(effect);
+        }, 600);
+      }
+
+      function updateStats() {
+        if (!simulation) return;
+
+        const stats = simulation.get_stats();
+
+        document.getElementById("agent-count").textContent = stats.agent_count;
+        document.getElementById("resource-count").textContent =
+          stats.resource_count;
+        document.getElementById("max-generation").textContent =
+          stats.max_generation;
+        document.getElementById("avg-age").textContent = Math.round(
+          stats.average_age
+        );
+        document.getElementById("total-energy").textContent = Math.round(
+          stats.total_energy
+        );
+        document.getElementById("total-kills").textContent = stats.total_kills;
+        document.getElementById("avg-fitness").textContent =
+          stats.average_fitness.toFixed(2);
+      }
+
+      function startStatsUpdate() {
+        setInterval(updateStats, 1000); // Update stats every second
+      }
+
+      function animate() {
+        if (isRunning && simulation) {
+          simulation.animate();
+          requestAnimationFrame(animate);
+        }
+      }
+
+      // Sidebar toggle functionality
+      function setupSidebarToggle() {
+        const sidebar = document.getElementById("sidebar");
+        const toggleBtn = document.getElementById("toggle-sidebar");
+        const showSidebarBtn = document.getElementById("show-sidebar");
+        const fullscreenOverlay = document.getElementById("fullscreen-overlay");
+
+        toggleBtn.addEventListener("click", () => {
+          sidebar.classList.add("collapsed");
+          fullscreenOverlay.classList.add("visible");
+        });
+
+        showSidebarBtn.addEventListener("click", () => {
+          sidebar.classList.remove("collapsed");
+          fullscreenOverlay.classList.remove("visible");
+        });
+      }
+
+      // Initialize the application
+      main();
+    </script>
+  </body>
+</html>

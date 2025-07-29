@@ -1,0 +1,212 @@
+use crate::agent::Agent;
+use crate::resource::Resource;
+use wasm_bindgen::prelude::*;
+use web_sys::{HtmlCanvasElement, WebGlBuffer, WebGlProgram, WebGlRenderingContext, WebGlShader};
+
+pub struct WebGlRenderer {
+    gl: WebGlRenderingContext,
+    program: WebGlProgram,
+    agent_buffer: WebGlBuffer,
+    resource_buffer: WebGlBuffer,
+    agent_count: u32,
+    resource_count: u32,
+}
+
+impl WebGlRenderer {
+    pub fn new(canvas: HtmlCanvasElement) -> Result<Self, JsValue> {
+        web_sys::console::log_1(&"Creating WebGL context...".into());
+        let gl = canvas
+            .get_context("webgl")?
+            .unwrap()
+            .dyn_into::<WebGlRenderingContext>()?;
+        web_sys::console::log_1(&"WebGL context created successfully!".into());
+
+        // Enable blending for transparency
+        gl.enable(WebGlRenderingContext::BLEND);
+        gl.blend_func(
+            WebGlRenderingContext::SRC_ALPHA,
+            WebGlRenderingContext::ONE_MINUS_SRC_ALPHA,
+        );
+
+        // Create shader program
+        let program = Self::create_shader_program(&gl)?;
+
+        // Create buffers
+        let agent_buffer = gl.create_buffer().ok_or("Failed to create agent buffer")?;
+        let resource_buffer = gl
+            .create_buffer()
+            .ok_or("Failed to create resource buffer")?;
+
+        Ok(WebGlRenderer {
+            gl,
+            program,
+            agent_buffer,
+            resource_buffer,
+            agent_count: 0,
+            resource_count: 0,
+        })
+    }
+
+    fn create_shader_program(gl: &WebGlRenderingContext) -> Result<WebGlProgram, JsValue> {
+        let vertex_shader = Self::create_shader(
+            gl,
+            WebGlRenderingContext::VERTEX_SHADER,
+            r#"attribute vec2 a_position;
+varying vec3 v_color;
+void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+    gl_PointSize = 5.0;
+    v_color = vec3(1.0, 0.0, 0.0);
+}"#,
+        )?;
+
+        let fragment_shader = Self::create_shader(
+            gl,
+            WebGlRenderingContext::FRAGMENT_SHADER,
+            r#"precision mediump float;
+varying vec3 v_color;
+void main() {
+    gl_FragColor = vec4(v_color, 1.0);
+}"#,
+        )?;
+
+        let program = gl.create_program().ok_or("Failed to create program")?;
+        gl.attach_shader(&program, &vertex_shader);
+        gl.attach_shader(&program, &fragment_shader);
+        gl.link_program(&program);
+
+        if gl
+            .get_program_parameter(&program, WebGlRenderingContext::LINK_STATUS)
+            .as_f64()
+            .unwrap_or(0.0)
+            > 0.0
+        {
+            Ok(program)
+        } else {
+            let error = gl.get_program_info_log(&program).unwrap_or_default();
+            Err(format!("Failed to link shader program: {}", error).into())
+        }
+    }
+
+    fn create_shader(
+        gl: &WebGlRenderingContext,
+        shader_type: u32,
+        source: &str,
+    ) -> Result<WebGlShader, JsValue> {
+        let shader_type_str = if shader_type == WebGlRenderingContext::VERTEX_SHADER {
+            "vertex"
+        } else {
+            "fragment"
+        };
+        web_sys::console::log_1(&format!("Creating {} shader...", shader_type_str).into());
+
+        let shader = gl
+            .create_shader(shader_type)
+            .ok_or("Failed to create shader")?;
+        gl.shader_source(&shader, source);
+        gl.compile_shader(&shader);
+
+        web_sys::console::log_1(&format!("Compiled {} shader", shader_type_str).into());
+
+        if gl
+            .get_shader_parameter(&shader, WebGlRenderingContext::COMPILE_STATUS)
+            .as_f64()
+            .unwrap_or(0.0)
+            > 0.0
+        {
+            Ok(shader)
+        } else {
+            let error = gl.get_shader_info_log(&shader).unwrap_or_default();
+            let shader_type_str = if shader_type == WebGlRenderingContext::VERTEX_SHADER {
+                "vertex"
+            } else {
+                "fragment"
+            };
+            Err(format!("Failed to compile {} shader: {}", shader_type_str, error).into())
+        }
+    }
+
+    pub fn update_agents(&mut self, agents: &[Agent]) {
+        self.agent_count = agents.len() as u32;
+
+        // Convert agents to GPU data
+        let mut agent_data = Vec::new();
+        for agent in agents {
+            // Position (vec2) only
+            agent_data.extend_from_slice(&(agent.x as f32).to_le_bytes());
+            agent_data.extend_from_slice(&(agent.y as f32).to_le_bytes());
+        }
+
+        self.gl.bind_buffer(
+            WebGlRenderingContext::ARRAY_BUFFER,
+            Some(&self.agent_buffer),
+        );
+        self.gl.buffer_data_with_u8_array(
+            WebGlRenderingContext::ARRAY_BUFFER,
+            &agent_data,
+            WebGlRenderingContext::DYNAMIC_DRAW,
+        );
+    }
+
+    pub fn update_resources(&mut self, resources: &[Resource]) {
+        self.resource_count = resources.len() as u32;
+
+        // Convert resources to GPU data
+        let mut resource_data = Vec::new();
+        for resource in resources {
+            // Position (vec2) only
+            resource_data.extend_from_slice(&(resource.x as f32).to_le_bytes());
+            resource_data.extend_from_slice(&(resource.y as f32).to_le_bytes());
+        }
+
+        self.gl.bind_buffer(
+            WebGlRenderingContext::ARRAY_BUFFER,
+            Some(&self.resource_buffer),
+        );
+        self.gl.buffer_data_with_u8_array(
+            WebGlRenderingContext::ARRAY_BUFFER,
+            &resource_data,
+            WebGlRenderingContext::DYNAMIC_DRAW,
+        );
+    }
+
+    pub fn render(&self) {
+        // Clear the canvas
+        self.gl.clear_color(0.1, 0.1, 0.18, 1.0);
+        self.gl.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
+
+        // Use our shader program
+        self.gl.use_program(Some(&self.program));
+
+        // Render agents
+        self.render_entities(&self.agent_buffer, self.agent_count, 0);
+
+        // Render resources
+        self.render_entities(&self.resource_buffer, self.resource_count, self.agent_count);
+    }
+
+    fn render_entities(&self, buffer: &WebGlBuffer, count: u32, offset: u32) {
+        if count == 0 {
+            return;
+        }
+
+        self.gl
+            .bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(buffer));
+
+        // Position attribute only
+        let position_location = self.gl.get_attrib_location(&self.program, "a_position") as u32;
+        self.gl.enable_vertex_attrib_array(position_location);
+        self.gl.vertex_attrib_pointer_with_i32(
+            position_location,
+            2,
+            WebGlRenderingContext::FLOAT,
+            false,
+            8,
+            0,
+        );
+
+        // Draw points
+        self.gl
+            .draw_arrays(WebGlRenderingContext::POINTS, offset as i32, count as i32);
+    }
+}
