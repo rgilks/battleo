@@ -101,8 +101,8 @@ impl Agent {
             return None;
         }
 
-        // Enhanced energy consumption using metabolism gene
-        let base_energy_cost = (self.genes.size * 0.01 + self.genes.speed * 0.005) * delta_time;
+        // Much higher energy consumption - agents should die quickly without food
+        let base_energy_cost = (self.genes.size * 0.05 + self.genes.speed * 0.02) * delta_time;
         let metabolism_factor = self.genes.metabolism;
         let environmental_factor = 1.0 + (self.x / canvas_width + self.y / canvas_height) * 0.001;
         let total_energy_cost = base_energy_cost * metabolism_factor * environmental_factor;
@@ -115,8 +115,8 @@ impl Agent {
             self.death_fade = 0.0;
             return None;
         }
-        
-        if self.age > 2000.0 {
+
+        if self.age > 200.0 {
             self.is_dying = true;
             self.death_reason = Some(DeathReason::OldAge);
             self.death_fade = 0.0;
@@ -350,13 +350,17 @@ impl Agent {
             for (i, resource) in resources.iter().enumerate() {
                 if resource.distance_to(self.x, self.y) < 5.0 {
                     // Consume the resource and gain energy - much more energy from resources
-                    self.energy += 20.0 * self.genes.energy_efficiency; // Increased from 5.0
+                    self.energy += 50.0 * self.genes.energy_efficiency; // Increased from 20.0
                     if self.energy > self.max_energy {
                         self.energy = self.max_energy;
                     }
 
-                    // Reset state
-                    self.state = AgentState::Seeking;
+                    // Boost reproduction chance when eating
+                    if self.energy > 15.0 && self.age > 2.0 {
+                        self.state = AgentState::Reproducing;
+                    } else {
+                        self.state = AgentState::Seeking;
+                    }
                     self.target_x = None;
                     self.target_y = None;
 
@@ -399,22 +403,27 @@ impl Agent {
                     let their_total_power = their_effective_power
                         * (1.0 + their_intelligence_bonus + their_stamina_bonus);
 
-                                        if my_total_power > their_total_power {
+                    if my_total_power > their_total_power {
                         // Win the fight - predators get more energy from prey
                         let energy_gain = if self.is_predator() && agent.is_prey() {
-                            agent.energy * 0.8 // Predators get more energy from prey
+                            agent.energy * 1.2 // Predators get more energy from prey
                         } else {
-                            agent.energy * 0.4 // Less energy from predator fights
+                            agent.energy * 0.6 // Less energy from predator fights
                         };
-                        
+
                         self.energy += energy_gain;
                         self.kills += 1;
-                        
+
                         // Predators get bonus energy from successful hunts
                         if self.is_predator() {
-                            self.energy += 10.0 * self.genes.attack_power;
+                            self.energy += 20.0 * self.genes.attack_power;
                         }
-                        
+
+                        // Boost reproduction chance after successful hunt
+                        if self.energy > 15.0 && self.age > 2.0 {
+                            self.state = AgentState::Reproducing;
+                        }
+
                         // Check if opponent died from combat
                         if agent.energy <= 0.0 {
                             // Mark opponent as killed by predator or combat
@@ -426,7 +435,7 @@ impl Agent {
                         // Lose the fight
                         let damage = their_total_power * 0.1;
                         self.energy -= damage;
-                        
+
                         // Check if we died from combat
                         if self.energy <= 0.0 {
                             self.is_dying = true;
@@ -434,7 +443,7 @@ impl Agent {
                             self.death_fade = 0.0;
                             // Don't return None here, let the main update loop handle it
                         }
-                        
+
                         self.state = AgentState::Fleeing;
                     }
                     break;
@@ -517,8 +526,8 @@ impl Agent {
     }
 
     pub fn can_reproduce(&self) -> bool {
-        self.energy > 20.0 && self.age > 5.0 && self.age - self.last_reproduction > 3.0
-        // Much faster reproduction (10x faster)
+        self.energy > 10.0 && self.age > 2.0 && self.age - self.last_reproduction > 1.0
+        // Much faster reproduction - reproduce when they have energy
     }
 
     pub fn distance_to(&self, x: f64, y: f64) -> f64 {
@@ -533,7 +542,7 @@ impl Agent {
     }
 
     pub fn is_alive(&self) -> bool {
-        self.energy > 0.0 && self.age < 1000.0
+        self.energy > 0.0 && self.age < 200.0
     }
 
     pub fn is_predator(&self) -> bool {
@@ -556,17 +565,12 @@ impl Agent {
         let spawn_x = self.x + offset_x;
         let spawn_y = self.y + offset_y;
 
-        let mut offspring = Self::new(
-            spawn_x,
-            spawn_y,
-            new_genes,
-            self.generation + 1,
-        );
-        
+        let mut offspring = Self::new(spawn_x, spawn_y, new_genes, self.generation + 1);
+
         // Set spawn position for proper fade-in
         offspring.spawn_position = Some((spawn_x, spawn_y));
         offspring.spawn_fade = 0.0; // Start invisible
-        
+
         offspring
     }
 }

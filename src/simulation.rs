@@ -44,7 +44,7 @@ impl Simulation {
             time: 0.0,
             resource_spawn_timer: 0.0,
             max_agents: 10000,   // Increased from 5000 - twice as many agents
-            max_resources: 3000, // Increased from 2000 - more food
+            max_resources: 1500, // Reduced from 3000 - less food to prevent overcrowding
         };
 
         // Initialize with some agents and resources
@@ -66,8 +66,8 @@ impl Simulation {
             self.agents.push(agent);
         }
 
-        // Spawn initial resources - increased for more food
-        let initial_resources = (self.max_resources as f64 * 0.2) as usize; // Increased from 0.15 to 0.2 (20% of max)
+        // Spawn initial resources - reduced to prevent overcrowding
+        let initial_resources = (self.max_resources as f64 * 0.1) as usize; // Reduced from 0.2 to 0.1 (10% of max)
         for _ in 0..initial_resources {
             let x = rng.gen_range(0.0..self.width);
             let y = rng.gen_range(0.0..self.height);
@@ -83,10 +83,10 @@ impl Simulation {
         // Update resources in parallel
         self.update_resources_parallel(delta_time);
 
-        // Spawn new resources more frequently
+        // Spawn new resources at a reasonable rate
         self.resource_spawn_timer += delta_time;
-        if self.resource_spawn_timer > 0.01 && self.resources.len() < self.max_resources {
-            // Much more frequent spawning (100x faster than original)
+        if self.resource_spawn_timer > 0.5 && self.resources.len() < self.max_resources {
+            // Much slower spawning (every 0.5 seconds instead of 0.01)
             self.spawn_resource();
             self.resource_spawn_timer = 0.0;
         }
@@ -112,12 +112,13 @@ impl Simulation {
         self.resources.par_iter_mut().for_each(|resource| {
             // Perform additional calculations per resource to increase work load
             let mut additional_work = 0.0;
-            for _ in 0..5 { // Add computational work
+            for _ in 0..5 {
+                // Add computational work
                 additional_work += (resource.x * resource.y * self.time).cos().abs();
             }
-            
+
             resource.update(delta_time);
-            
+
             // Apply additional work effects
             resource.energy += additional_work * 0.00001;
         });
@@ -135,15 +136,16 @@ impl Simulation {
             .map(|(i, agent)| {
                 // Perform additional calculations per agent to increase work load
                 let mut additional_work = 0.0;
-                for _ in 0..10 { // Add computational work
+                for _ in 0..10 {
+                    // Add computational work
                     additional_work += (agent.x * agent.y * self.time).sin().abs();
                 }
-                
+
                 let consumed = agent.update(delta_time, &resources, &[], self.width, self.height);
-                
+
                 // Apply additional work effects
                 agent.energy += additional_work * 0.00001;
-                
+
                 (i, consumed)
             })
             .collect();
@@ -252,21 +254,26 @@ impl Simulation {
                     for (j, &(x2, y2, energy2, speed2)) in agent_positions.iter().enumerate() {
                         if i != j {
                             let distance = ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt();
-                            if distance < 100.0 { // Increased range for more interactions
+                            if distance < 100.0 {
+                                // Increased range for more interactions
                                 // Enhanced interaction calculation with multiple factors
                                 let force = 1.0 / (distance * distance + 1.0);
                                 let energy_factor = (energy1 + energy2) / 200.0;
                                 let speed_factor = (speed1 + speed2) / 2.0;
                                 let combined_force = force * energy_factor * speed_factor;
-                                
+
                                 let angle = (y2 - y1).atan2(x2 - x1);
                                 let fx = combined_force * angle.cos();
                                 let fy = combined_force * angle.sin();
-                                
+
                                 // Add multiple interaction types
                                 let repulsion = if distance < 10.0 { 1.0 / distance } else { 0.0 };
-                                let attraction = if distance > 20.0 && distance < 80.0 { 0.1 / distance } else { 0.0 };
-                                
+                                let attraction = if distance > 20.0 && distance < 80.0 {
+                                    0.1 / distance
+                                } else {
+                                    0.0
+                                };
+
                                 interactions.push((j, fx, fy, repulsion, attraction));
                             }
                         }
@@ -291,8 +298,15 @@ impl Simulation {
 
         // Enhanced resource distribution calculations with more work
         if num_resources > 0 {
-            let resource_data: Vec<_> = self.resources.par_iter().map(|r| (r.energy, r.x, r.y, r.size)).collect();
-            let total_energy: f64 = resource_data.par_iter().map(|(energy, _, _, _)| energy).sum();
+            let resource_data: Vec<_> = self
+                .resources
+                .par_iter()
+                .map(|r| (r.energy, r.x, r.y, r.size))
+                .collect();
+            let total_energy: f64 = resource_data
+                .par_iter()
+                .map(|(energy, _, _, _)| energy)
+                .sum();
             let average_energy = total_energy / num_resources as f64;
 
             // Calculate comprehensive resource statistics in parallel
@@ -306,15 +320,28 @@ impl Simulation {
                 })
                 .collect();
 
-            let total_variance: f64 = resource_stats.par_iter().map(|(variance, _, _)| variance).sum::<f64>() / num_resources as f64;
-            let spatial_balance: f64 = resource_stats.par_iter().map(|(_, spatial, _)| spatial).sum::<f64>() / num_resources as f64;
-            let size_balance: f64 = resource_stats.par_iter().map(|(_, _, size)| size).sum::<f64>() / num_resources as f64;
+            let total_variance: f64 = resource_stats
+                .par_iter()
+                .map(|(variance, _, _)| variance)
+                .sum::<f64>()
+                / num_resources as f64;
+            let spatial_balance: f64 = resource_stats
+                .par_iter()
+                .map(|(_, spatial, _)| spatial)
+                .sum::<f64>()
+                / num_resources as f64;
+            let size_balance: f64 = resource_stats
+                .par_iter()
+                .map(|(_, _, size)| size)
+                .sum::<f64>()
+                / num_resources as f64;
 
             // Apply enhanced redistribution based on multiple factors
             if total_variance > 5.0 || spatial_balance.abs() > 0.1 {
                 self.resources.par_iter_mut().for_each(|resource| {
                     let energy_diff = resource.energy - average_energy;
-                    let spatial_factor = ((resource.x * resource.x + resource.y * resource.y).sqrt() / 1000.0).sin();
+                    let spatial_factor =
+                        ((resource.x * resource.x + resource.y * resource.y).sqrt() / 1000.0).sin();
                     let redistribution = energy_diff * 0.01 + spatial_factor * 0.1;
                     resource.energy += redistribution;
                 });
@@ -330,12 +357,14 @@ impl Simulation {
                     let x = (i as f64 * 0.1) % self.width;
                     let y = (i as f64 * 0.1) % self.height;
                     let time_factor = self.time * 0.001;
-                    
+
                     // Multiple environmental calculations
                     let noise1 = (x * 0.01 + time_factor).sin() * (y * 0.01 + time_factor).cos();
-                    let noise2 = (x * 0.005 + time_factor * 0.5).cos() * (y * 0.005 + time_factor * 0.5).sin();
-                    let noise3 = (x * 0.02 + time_factor * 2.0).sin() * (y * 0.02 + time_factor * 2.0).sin();
-                    
+                    let noise2 = (x * 0.005 + time_factor * 0.5).cos()
+                        * (y * 0.005 + time_factor * 0.5).sin();
+                    let noise3 =
+                        (x * 0.02 + time_factor * 2.0).sin() * (y * 0.02 + time_factor * 2.0).sin();
+
                     let combined_noise = noise1 * 0.5 + noise2 * 0.3 + noise3 * 0.2;
                     combined_noise
                 })
@@ -349,7 +378,7 @@ impl Simulation {
                     if i < environmental_factors.len() {
                         let factor = environmental_factors[i];
                         agent.energy += factor * 0.0001; // Increased effect
-                        
+
                         // Also affect movement slightly
                         agent.dx += factor * 0.00001;
                         agent.dy += factor * 0.00001;
@@ -367,16 +396,30 @@ impl Simulation {
                     let age_factor = agent.age / 1000.0;
                     let energy_factor = agent.energy / 100.0;
                     let generation_factor = agent.generation as f64;
-                    
+
                     (fitness, age_factor, energy_factor, generation_factor)
                 })
                 .collect();
 
             // Calculate population statistics in parallel
-            let total_fitness: f64 = fitness_data.par_iter().map(|(fitness, _, _, _)| fitness).sum();
-            let average_age: f64 = fitness_data.par_iter().map(|(_, age, _, _)| age).sum::<f64>() / num_agents as f64;
-            let average_energy: f64 = fitness_data.par_iter().map(|(_, _, energy, _)| energy).sum::<f64>() / num_agents as f64;
-            let max_generation: f64 = fitness_data.par_iter().map(|(_, _, _, gen)| *gen).reduce(|| 0.0, |a, b| a.max(b));
+            let total_fitness: f64 = fitness_data
+                .par_iter()
+                .map(|(fitness, _, _, _)| fitness)
+                .sum();
+            let average_age: f64 = fitness_data
+                .par_iter()
+                .map(|(_, age, _, _)| age)
+                .sum::<f64>()
+                / num_agents as f64;
+            let average_energy: f64 = fitness_data
+                .par_iter()
+                .map(|(_, _, energy, _)| energy)
+                .sum::<f64>()
+                / num_agents as f64;
+            let max_generation: f64 = fitness_data
+                .par_iter()
+                .map(|(_, _, _, gen)| *gen)
+                .reduce(|| 0.0, |a, b| a.max(b));
 
             // Apply population-wide effects based on statistics
             if total_fitness > 0.0 {

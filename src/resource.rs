@@ -29,9 +29,9 @@ impl Resource {
             y,
             energy: 0.0, // Start with 0 energy and grow smoothly
             max_energy,
-            size: 3.0, // Start small and grow
-            growth_rate: rng.gen_range(0.5..2.0),
-            regeneration_rate: rng.gen_range(0.1..0.5),
+            size: 3.0,                                   // Start small and grow
+            growth_rate: rng.gen_range(0.1..0.5),        // Much slower growth
+            regeneration_rate: rng.gen_range(0.02..0.1), // Much slower regeneration
             age: 0.0,
             target_energy: initial_energy,
             is_spawning: true, // Start in spawning state
@@ -76,9 +76,9 @@ impl Resource {
                 }
             }
 
-            // Natural growth towards max energy
+            // Natural growth towards max energy (much slower)
             if self.energy < self.max_energy {
-                self.energy += self.growth_rate * delta_time * 0.5;
+                self.energy += self.growth_rate * delta_time * 0.1; // Reduced from 0.5
                 if self.energy > self.max_energy {
                     self.energy = self.max_energy;
                 }
@@ -92,9 +92,9 @@ impl Resource {
             self.size += size_diff * delta_time * 2.0; // Smooth size transitions
         }
 
-        // Regeneration when depleted
+        // Regeneration when depleted (much slower)
         if self.energy < 10.0 && !self.is_depleting {
-            self.energy += self.regeneration_rate * delta_time;
+            self.energy += self.regeneration_rate * delta_time * 0.2; // Reduced from 1.0
         }
     }
 
