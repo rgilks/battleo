@@ -19,13 +19,13 @@ impl Genes {
         let mut rng = thread_rng();
 
         Self {
-            speed: rng.gen_range(0.5..2.0),
-            sense_range: rng.gen_range(20.0..100.0),
-            size: rng.gen_range(0.8..1.5),
-            energy_efficiency: rng.gen_range(0.7..1.3),
-            reproduction_threshold: rng.gen_range(50.0..150.0),
-            mutation_rate: rng.gen_range(0.01..0.1),
-            aggression: rng.gen_range(0.0..1.0),
+            speed: rng.gen_range(0.8..1.5), // Reduced from 0.5..2.0
+            sense_range: rng.gen_range(30.0..80.0), // Reduced from 20.0..100.0
+            size: rng.gen_range(0.9..1.3), // Reduced from 0.8..1.5
+            energy_efficiency: rng.gen_range(0.8..1.2), // Reduced from 0.7..1.3
+            reproduction_threshold: rng.gen_range(60.0..120.0), // Reduced from 50.0..150.0
+            mutation_rate: rng.gen_range(0.02..0.08), // Reduced from 0.01..0.1
+            aggression: rng.gen_range(0.2..0.8), // Reduced from 0.0..1.0
             color_hue: rng.gen_range(0.0..360.0),
         }
     }
@@ -77,7 +77,7 @@ impl Genes {
 
         // Apply mutation
         if rng.gen::<f64>() < mutation_rate {
-            let mutation_dist = Normal::new(0.0, 0.1).unwrap();
+            let mutation_dist = Normal::new(0.0, 0.05).unwrap(); // Reduced from 0.1
             let mutation = mutation_dist.sample(rng);
             gene += mutation;
         }
@@ -85,17 +85,17 @@ impl Genes {
         // Clamp values to reasonable ranges
         match gene {
             speed if speed < 0.1 => 0.1,
-            speed if speed > 5.0 => 5.0,
+            speed if speed > 3.0 => 3.0, // Reduced from 5.0
             sense_range if sense_range < 5.0 => 5.0,
-            sense_range if sense_range > 200.0 => 200.0,
+            sense_range if sense_range > 150.0 => 150.0, // Reduced from 200.0
             size if size < 0.3 => 0.3,
-            size if size > 3.0 => 3.0,
+            size if size > 2.5 => 2.5, // Reduced from 3.0
             energy_efficiency if energy_efficiency < 0.1 => 0.1,
-            energy_efficiency if energy_efficiency > 3.0 => 3.0,
+            energy_efficiency if energy_efficiency > 2.5 => 2.5, // Reduced from 3.0
             reproduction_threshold if reproduction_threshold < 10.0 => 10.0,
-            reproduction_threshold if reproduction_threshold > 300.0 => 300.0,
+            reproduction_threshold if reproduction_threshold > 200.0 => 200.0, // Reduced from 300.0
             mutation_rate if mutation_rate < 0.001 => 0.001,
-            mutation_rate if mutation_rate > 0.5 => 0.5,
+            mutation_rate if mutation_rate > 0.3 => 0.3, // Reduced from 0.5
             aggression if aggression < 0.0 => 0.0,
             aggression if aggression > 1.0 => 1.0,
             color_hue if color_hue < 0.0 => 0.0,

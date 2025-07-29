@@ -56,9 +56,9 @@ impl Simulation {
     fn spawn_initial_population(&mut self) {
         let mut rng = thread_rng();
 
-        // Spawn initial agents - much more
-        for _ in 0..500 {
-            // Increased from 50
+        // Spawn initial agents - much smaller for web interface
+        let initial_agents = (self.max_agents as f64 * 0.05) as usize; // Reduced from 0.1 to 0.05 (5% of max)
+        for _ in 0..initial_agents {
             let x = rng.gen_range(0.0..self.width);
             let y = rng.gen_range(0.0..self.height);
             let genes = Genes::new();
@@ -66,10 +66,9 @@ impl Simulation {
             self.agents.push(agent);
         }
 
-        // Spawn initial resources - much more
-        for _ in 0..500 {
-            // Increased from 300
-            // Increased from 30
+        // Spawn initial resources - much smaller for web interface
+        let initial_resources = (self.max_resources as f64 * 0.15) as usize; // Reduced from 0.3 to 0.15 (15% of max)
+        for _ in 0..initial_resources {
             let x = rng.gen_range(0.0..self.width);
             let y = rng.gen_range(0.0..self.height);
             let resource = Resource::new(x, y);
@@ -78,7 +77,7 @@ impl Simulation {
     }
 
     pub fn update(&mut self) {
-        let delta_time = 1.0 / 120.0; // Increased to 120 FPS for more frequent updates
+        let delta_time = 1.0 / 12.0; // Changed from 1.0/120.0 to 1.0/12.0 (10x faster)
         self.time += delta_time;
 
         // Update resources in parallel
@@ -86,9 +85,8 @@ impl Simulation {
 
         // Spawn new resources more frequently
         self.resource_spawn_timer += delta_time;
-        if self.resource_spawn_timer > 0.2 && self.resources.len() < self.max_resources {
-            // More frequent spawning
-            // More frequent spawning
+        if self.resource_spawn_timer > 0.02 && self.resources.len() < self.max_resources {
+            // Much more frequent spawning (10x faster)
             self.spawn_resource();
             self.resource_spawn_timer = 0.0;
         }
@@ -150,6 +148,19 @@ impl Simulation {
         // Use Rayon to handle reproduction in parallel
         let mut new_agents = Vec::new();
 
+        // Much more restrictive population control
+        let safe_population_threshold = (self.max_agents as f64 * 0.6) as usize; // Reduced from 0.8
+
+        if self.agents.len() >= safe_population_threshold {
+            return; // Don't reproduce if population is too high
+        }
+
+        // Only allow reproduction if population is growing slowly
+        let population_growth_rate = self.agents.len() as f64 / self.max_agents as f64;
+        if population_growth_rate > 0.4 {
+            return; // Don't reproduce if population is already substantial
+        }
+
         // Process reproduction in parallel
         let reproduction_results: Vec<_> = self
             .agents
@@ -163,12 +174,23 @@ impl Simulation {
                         .filter(|other| {
                             other.id() != agent.id()
                                 && agent.distance_to(other.x, other.y) < 20.0
-                                && other.energy > 30.0
+                                && other.energy > 50.0 // Increased from 30.0
+                                && other.can_reproduce()
                         })
                         .collect();
 
                     if let Some(mate) = potential_mates.choose(&mut thread_rng()) {
-                        Some(agent.create_offspring(mate))
+                        // Additional check: only reproduce if we won't exceed max agents
+                        if self.agents.len() + new_agents.len() < self.max_agents {
+                            // Random chance to reproduce (50% chance)
+                            if thread_rng().gen::<f64>() < 0.5 {
+                                Some(agent.create_offspring(mate))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
@@ -180,7 +202,7 @@ impl Simulation {
 
         // Add new agents
         for new_agent in reproduction_results {
-            if self.agents.len() < self.max_agents {
+            if self.agents.len() + new_agents.len() < self.max_agents {
                 new_agents.push(new_agent);
             }
         }
@@ -189,19 +211,20 @@ impl Simulation {
     }
 
     fn perform_complex_calculations(&mut self) {
-        // Perform complex calculations in parallel to utilize all CPU cores
+        // Much simplified calculations to avoid instability
         let num_agents = self.agents.len();
         let num_resources = self.resources.len();
 
-        // Complex agent-to-agent interaction calculations
-        if num_agents > 1 {
+        // Only do complex calculations if we have enough agents
+        if num_agents > 10 && num_resources > 10 {
+            // Simplified agent-to-agent interaction calculations
             let agent_positions: Vec<_> = self
                 .agents
                 .par_iter()
                 .map(|agent| (agent.x, agent.y))
                 .collect();
 
-            // Calculate complex interaction matrices in parallel
+            // Calculate simplified interaction matrices in parallel
             let interaction_matrix: Vec<_> = agent_positions
                 .par_iter()
                 .enumerate()
@@ -211,8 +234,8 @@ impl Simulation {
                         if i != j {
                             let distance =
                                 ((pos1.0 - pos2.0).powi(2) + (pos1.1 - pos2.1).powi(2)).sqrt();
-                            if distance < 100.0 {
-                                // Complex interaction calculation
+                            if distance < 50.0 {
+                                // Much simpler interaction calculation
                                 let force = 1.0 / (distance * distance + 1.0);
                                 let angle = (pos2.1 - pos1.1).atan2(pos2.0 - pos1.0);
                                 let fx = force * angle.cos();
@@ -232,57 +255,59 @@ impl Simulation {
                 .for_each(|(i, agent)| {
                     if i < interaction_matrix.len() {
                         for (_, fx, fy) in &interaction_matrix[i] {
-                            agent.dx += fx * 0.001; // Reduced from 0.01
-                            agent.dy += fy * 0.001; // Reduced from 0.01
+                            agent.dx += fx * 0.0001; // Reduced from 0.001
+                            agent.dy += fy * 0.0001; // Reduced from 0.001
                         }
                     }
                 });
         }
 
-        // Complex resource distribution calculations
+        // Simplified resource distribution calculations
         if num_resources > 0 {
             let resource_energy: Vec<_> = self.resources.par_iter().map(|r| r.energy).collect();
             let total_energy: f64 = resource_energy.par_iter().sum();
             let average_energy = total_energy / num_resources as f64;
 
-            // Calculate energy variance in parallel
+            // Only apply redistribution if variance is very high
             let energy_variance: f64 = resource_energy
                 .par_iter()
                 .map(|&energy| (energy - average_energy).powi(2))
                 .sum::<f64>()
                 / num_resources as f64;
 
-            // Apply energy redistribution based on variance
-            if energy_variance > 1.0 {
+            if energy_variance > 10.0 {
+                // Increased threshold
                 self.resources.par_iter_mut().for_each(|resource| {
                     let energy_diff = resource.energy - average_energy;
-                    resource.energy += energy_diff * 0.01;
+                    resource.energy += energy_diff * 0.001; // Reduced from 0.01
                 });
             }
         }
 
-        // Complex environmental calculations - simplified
-        let environmental_factors: Vec<_> = (0..num_agents)
-            .into_par_iter()
-            .map(|i| {
-                let x = (i as f64 * 0.1) % self.width;
-                let y = (i as f64 * 0.1) % self.height;
-                let time_factor = self.time * 0.001; // Reduced from 0.01
-                let noise = (x * 0.01 + time_factor).sin() * (y * 0.01 + time_factor).cos(); // Reduced frequency
-                noise
-            })
-            .collect();
+        // Much simplified environmental calculations
+        if num_agents > 0 {
+            let environmental_factors: Vec<_> = (0..num_agents.min(100)) // Limit to 100 agents
+                .into_par_iter()
+                .map(|i| {
+                    let x = (i as f64 * 0.1) % self.width;
+                    let y = (i as f64 * 0.1) % self.height;
+                    let time_factor = self.time * 0.0001; // Reduced from 0.001
+                    let noise = (x * 0.001 + time_factor).sin() * (y * 0.001 + time_factor).cos(); // Much reduced frequency
+                    noise
+                })
+                .collect();
 
-        // Apply environmental effects in parallel - much smaller effect
-        self.agents
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(i, agent)| {
-                if i < environmental_factors.len() {
-                    let factor = environmental_factors[i];
-                    agent.energy += factor * 0.0001; // Reduced from 0.001 - much smaller effect
-                }
-            });
+            // Apply environmental effects in parallel - much smaller effect
+            self.agents
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(i, agent)| {
+                    if i < environmental_factors.len() {
+                        let factor = environmental_factors[i];
+                        agent.energy += factor * 0.00001; // Reduced from 0.0001 - much smaller effect
+                    }
+                });
+        }
     }
 
     fn spawn_resource(&mut self) {

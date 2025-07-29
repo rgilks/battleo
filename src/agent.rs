@@ -64,9 +64,9 @@ impl Agent {
     ) -> Option<usize> {
         self.age += delta_time;
 
-        // Reduced energy consumption - much more sustainable
-        let energy_cost = (self.genes.size * 0.1 + self.genes.speed * 0.05) * delta_time;
-        let environmental_factor = 1.0 + (self.x / canvas_width + self.y / canvas_height) * 0.01; // Reduced from 0.1
+        // Much reduced energy consumption - more sustainable
+        let energy_cost = (self.genes.size * 0.01 + self.genes.speed * 0.005) * delta_time; // Reduced from 0.1 and 0.05
+        let environmental_factor = 1.0 + (self.x / canvas_width + self.y / canvas_height) * 0.001; // Reduced from 0.01
         self.energy -= energy_cost / self.genes.energy_efficiency * environmental_factor;
 
         // Death from old age or no energy
@@ -99,8 +99,8 @@ impl Agent {
         }
 
         // Reduced learning calculations - only run occasionally
-        if self.age % 10.0 < delta_time {
-            // Only run every 10 seconds instead of every frame
+        if self.age % 1.0 < delta_time {
+            // Only run every 1 second instead of every 10 seconds (10x faster)
             self.perform_learning_calculations(delta_time);
         }
 
@@ -111,14 +111,14 @@ impl Agent {
         // Complex decision making based on environment
         let mut threat_level = 0.0;
         let mut resource_abundance = 0.0;
-        let mut population_density = 0.0;
+        let mut _population_density = 0.0;
 
         // Calculate environmental factors
         for agent in agents {
             if agent.id() != self.id() {
                 let distance = self.distance_to(agent.x, agent.y);
                 if distance < 100.0 {
-                    population_density += 1.0 / (distance + 1.0);
+                    _population_density += 1.0 / (distance + 1.0);
                     if agent.genes.size > self.genes.size * 1.2 {
                         threat_level += 1.0 / (distance + 1.0);
                     }
@@ -133,12 +133,13 @@ impl Agent {
             }
         }
 
-        // Complex behavioral adaptation
-        let stress_factor = threat_level * 0.5 + (1.0 - resource_abundance / 1000.0) * 0.3;
-        self.genes.speed *= (1.0 + stress_factor * 0.1).min(2.0);
+        // Complex behavioral adaptation - REMOVED SPEED MULTIPLICATION
+        // This was causing exponential speed growth
+        let _stress_factor = threat_level * 0.5 + (1.0 - resource_abundance / 1000.0) * 0.3;
+        // self.genes.speed *= (1.0 + stress_factor * 0.1).min(2.0); // REMOVED THIS LINE
     }
 
-    fn perform_learning_calculations(&mut self, delta_time: f64) {
+    fn perform_learning_calculations(&mut self, _delta_time: f64) {
         // Simplified learning calculations - much less expensive
         let input = self.energy / self.max_energy;
         let weight1 = self.genes.speed;
@@ -150,9 +151,10 @@ impl Agent {
         let output = 1.0 / (1.0 + (-hidden2 * weight2 - input * weight3).exp()); // sigmoid function
 
         // Apply learning to genes (subtle adaptation) - only if output is high
+        // REMOVED GENE MODIFICATIONS - these were causing instability
         if output > 0.7 {
-            self.genes.speed *= 1.0001; // Much smaller adaptation
-            self.genes.size *= 1.0001;
+            // self.genes.speed *= 1.0001; // REMOVED
+            // self.genes.size *= 1.0001; // REMOVED
         }
     }
 
@@ -308,8 +310,8 @@ impl Agent {
     }
 
     fn reproduce(&mut self) {
-        // Reproduction costs energy - reduced cost
-        self.energy *= 0.8; // Reduced from 0.6 - less punishing
+        // Reproduction costs energy - higher cost to prevent overpopulation
+        self.energy *= 0.7; // Increased from 0.9 - more punishing
         self.last_reproduction = self.age;
         self.state = AgentState::Seeking;
     }
@@ -360,8 +362,8 @@ impl Agent {
     }
 
     pub fn can_reproduce(&self) -> bool {
-        self.energy > 30.0 && self.age > 50.0 && self.age - self.last_reproduction > 20.0
-        // Reduced requirements
+        self.energy > 20.0 && self.age > 5.0 && self.age - self.last_reproduction > 3.0
+        // Much faster reproduction (10x faster)
     }
 
     pub fn distance_to(&self, x: f64, y: f64) -> f64 {

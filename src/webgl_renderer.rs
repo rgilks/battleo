@@ -18,18 +18,15 @@ pub struct WebGlRenderer {
 
 impl WebGlRenderer {
     pub fn new(canvas: HtmlCanvasElement) -> Result<Self, JsValue> {
-        web_sys::console::log_1(&"Creating WebGL context...".into());
         let gl = canvas
             .get_context("webgl")?
             .unwrap()
             .dyn_into::<WebGlRenderingContext>()?;
-        web_sys::console::log_1(&"WebGL context created successfully!".into());
 
         // Set up viewport
         let width = canvas.width() as i32;
         let height = canvas.height() as i32;
         gl.viewport(0, 0, width, height);
-        web_sys::console::log_1(&format!("Set viewport: {}x{}", width, height).into());
 
         // Enable blending for transparency
         gl.enable(WebGlRenderingContext::BLEND);
@@ -65,24 +62,28 @@ impl WebGlRenderer {
         let vertex_shader = Self::create_shader(
             gl,
             WebGlRenderingContext::VERTEX_SHADER,
-            r#"attribute vec2 a_position;
+            r#"precision mediump float;
+attribute vec2 a_position;
+attribute vec3 a_color;
 uniform vec2 u_canvas_size;
+varying vec3 v_color;
 void main() {
     // Transform from pixel coordinates to normalized device coordinates
-    // Pixel coordinates: (0,0) at top-left, (width,height) at bottom-right
-    // NDC coordinates: (-1,-1) at bottom-left, (1,1) at top-right
     vec2 ndc = (a_position / u_canvas_size) * 2.0 - 1.0;
     ndc.y = -ndc.y; // Flip Y axis
     gl_Position = vec4(ndc, 0.0, 1.0);
-    gl_PointSize = 5.0;
+    gl_PointSize = 6.0;
+    v_color = a_color;
 }"#,
         )?;
 
         let fragment_shader = Self::create_shader(
             gl,
             WebGlRenderingContext::FRAGMENT_SHADER,
-            r#"void main() {
-    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+            r#"precision mediump float;
+varying vec3 v_color;
+void main() {
+    gl_FragColor = vec4(v_color, 1.0);
 }"#,
         )?;
 
@@ -92,8 +93,6 @@ void main() {
         gl.link_program(&program);
 
         let link_status = gl.get_program_parameter(&program, WebGlRenderingContext::LINK_STATUS);
-        web_sys::console::log_1(&format!("Link status: {:?}", link_status).into());
-
         if link_status.as_bool().unwrap_or(false) {
             Ok(program)
         } else {
@@ -112,7 +111,6 @@ void main() {
         } else {
             "fragment"
         };
-        web_sys::console::log_1(&format!("Creating {} shader...", shader_type_str).into());
 
         let shader = gl
             .create_shader(shader_type)
@@ -120,18 +118,8 @@ void main() {
         gl.shader_source(&shader, source);
         gl.compile_shader(&shader);
 
-        web_sys::console::log_1(&format!("Compiled {} shader", shader_type_str).into());
-
         let compile_status =
             gl.get_shader_parameter(&shader, WebGlRenderingContext::COMPILE_STATUS);
-        web_sys::console::log_1(
-            &format!(
-                "Compile status for {} shader: {:?}",
-                shader_type_str, compile_status
-            )
-            .into(),
-        );
-
         if compile_status.as_bool().unwrap_or(false) {
             Ok(shader)
         } else {
@@ -147,23 +135,24 @@ void main() {
 
     pub fn update_agents(&mut self, agents: &[Agent]) {
         self.agent_count = agents.len() as u32;
-        web_sys::console::log_1(&format!("Updating {} agents", self.agent_count).into());
 
-        // Convert agents to GPU data
+        // Convert agents to GPU data with colors
         let mut agent_data = Vec::new();
         for agent in agents {
-            // Position (vec2) only
+            // Position (vec2)
             agent_data.extend_from_slice(&(agent.x as f32).to_le_bytes());
             agent_data.extend_from_slice(&(agent.y as f32).to_le_bytes());
-        }
 
-        web_sys::console::log_1(&format!("Agent buffer size: {} bytes", agent_data.len()).into());
+            // Color (vec3) based on genes
+            let hue = (agent.genes.speed * 100.0 + agent.genes.sense_range * 50.0) % 360.0;
+            let saturation = 0.7 + agent.genes.size * 0.2;
+            let lightness = 0.5 + agent.energy * 0.002;
 
-        // Log first few agent positions for debugging
-        if !agents.is_empty() {
-            web_sys::console::log_1(
-                &format!("First agent position: ({}, {})", agents[0].x, agents[0].y).into(),
-            );
+            // Convert HSL to RGB
+            let (r, g, b) = Self::hsl_to_rgb(hue as f32, saturation as f32, lightness as f32);
+            agent_data.extend_from_slice(&(r as f32).to_le_bytes());
+            agent_data.extend_from_slice(&(g as f32).to_le_bytes());
+            agent_data.extend_from_slice(&(b as f32).to_le_bytes());
         }
 
         self.gl.bind_buffer(
@@ -179,19 +168,24 @@ void main() {
 
     pub fn update_resources(&mut self, resources: &[Resource]) {
         self.resource_count = resources.len() as u32;
-        web_sys::console::log_1(&format!("Updating {} resources", self.resource_count).into());
 
-        // Convert resources to GPU data
+        // Convert resources to GPU data with colors
         let mut resource_data = Vec::new();
         for resource in resources {
-            // Position (vec2) only
+            // Position (vec2)
             resource_data.extend_from_slice(&(resource.x as f32).to_le_bytes());
             resource_data.extend_from_slice(&(resource.y as f32).to_le_bytes());
-        }
 
-        web_sys::console::log_1(
-            &format!("Resource buffer size: {} bytes", resource_data.len()).into(),
-        );
+            // Color (vec3) based on energy - green to yellow to orange
+            let energy_ratio = (resource.energy / 100.0).min(1.0);
+            let r = energy_ratio;
+            let g = 1.0 - energy_ratio * 0.5;
+            let b = 0.0;
+
+            resource_data.extend_from_slice(&(r as f32).to_le_bytes());
+            resource_data.extend_from_slice(&(g as f32).to_le_bytes());
+            resource_data.extend_from_slice(&(b as f32).to_le_bytes());
+        }
 
         self.gl.bind_buffer(
             WebGlRenderingContext::ARRAY_BUFFER,
@@ -229,12 +223,10 @@ void main() {
             return;
         }
 
-        web_sys::console::log_1(&format!("Rendering {} entities", count).into());
-
         self.gl
             .bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(buffer));
 
-        // Position attribute only
+        // Position attribute (vec2)
         let position_location = self.gl.get_attrib_location(&self.program, "a_position") as u32;
         self.gl.enable_vertex_attrib_array(position_location);
         self.gl.vertex_attrib_pointer_with_i32(
@@ -242,12 +234,46 @@ void main() {
             2,
             WebGlRenderingContext::FLOAT,
             false,
-            8,
+            20, // 2 floats for position + 3 floats for color
             0,
+        );
+
+        // Color attribute (vec3)
+        let color_location = self.gl.get_attrib_location(&self.program, "a_color") as u32;
+        self.gl.enable_vertex_attrib_array(color_location);
+        self.gl.vertex_attrib_pointer_with_i32(
+            color_location,
+            3,
+            WebGlRenderingContext::FLOAT,
+            false,
+            20, // 2 floats for position + 3 floats for color
+            8,  // Offset to color data
         );
 
         // Draw points
         self.gl
             .draw_arrays(WebGlRenderingContext::POINTS, 0, count as i32);
+    }
+
+    fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
+        let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+        let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+        let m = l - c / 2.0;
+
+        let (r, g, b) = if h < 60.0 {
+            (c, x, 0.0)
+        } else if h < 120.0 {
+            (x, c, 0.0)
+        } else if h < 180.0 {
+            (0.0, c, x)
+        } else if h < 240.0 {
+            (0.0, x, c)
+        } else if h < 300.0 {
+            (x, 0.0, c)
+        } else {
+            (c, 0.0, x)
+        };
+
+        (r + m, g + m, b + m)
     }
 }
