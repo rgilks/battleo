@@ -64,10 +64,12 @@ impl Agent {
     ) -> Option<usize> {
         self.age += delta_time;
 
-        // Much reduced energy consumption - more sustainable
-        let energy_cost = (self.genes.size * 0.01 + self.genes.speed * 0.005) * delta_time; // Reduced from 0.1 and 0.05
-        let environmental_factor = 1.0 + (self.x / canvas_width + self.y / canvas_height) * 0.001; // Reduced from 0.01
-        self.energy -= energy_cost / self.genes.energy_efficiency * environmental_factor;
+        // Enhanced energy consumption using metabolism gene
+        let base_energy_cost = (self.genes.size * 0.01 + self.genes.speed * 0.005) * delta_time;
+        let metabolism_factor = self.genes.metabolism;
+        let environmental_factor = 1.0 + (self.x / canvas_width + self.y / canvas_height) * 0.001;
+        let total_energy_cost = base_energy_cost * metabolism_factor * environmental_factor;
+        self.energy -= total_energy_cost / self.genes.energy_efficiency;
 
         // Death from old age or no energy
         if self.energy <= 0.0 || self.age > 2000.0 {
@@ -162,7 +164,48 @@ impl Agent {
         let mut best_target = None;
         let mut best_score = f64::NEG_INFINITY;
 
-        // Look for resources
+        // PREDATOR BEHAVIOR: Hunt prey first if predator
+        if self.is_predator() {
+            for agent in agents {
+                if agent.id() != self.id() && agent.is_prey() {
+                    let distance = self.distance_to(agent.x, agent.y);
+                    if distance <= self.genes.sense_range * self.genes.territory_size / 100.0 {
+                        // Calculate hunting score based on predator genes
+                        let energy_score = agent.energy / 100.0;
+                        let distance_penalty = distance / self.genes.sense_range;
+                        let stealth_bonus = self.genes.stealth;
+                        let intelligence_bonus = self.genes.intelligence;
+                        
+                        let score = energy_score * (1.0 - distance_penalty) * (1.0 + stealth_bonus) * (1.0 + intelligence_bonus);
+                        
+                        if score > best_score {
+                            best_score = score;
+                            best_target = Some((agent.x, agent.y, true, "prey"));
+                        }
+                    }
+                }
+            }
+        }
+
+        // PREY BEHAVIOR: Look for predators to flee from
+        if self.is_prey() {
+            for agent in agents {
+                if agent.id() != self.id() && agent.is_predator() {
+                    let distance = self.distance_to(agent.x, agent.y);
+                    if distance <= self.genes.sense_range {
+                        // Flee from predators
+                        self.state = AgentState::Fleeing;
+                        let flee_x = self.x - (agent.x - self.x) * 2.0;
+                        let flee_y = self.y - (agent.y - self.y) * 2.0;
+                        self.target_x = Some(flee_x);
+                        self.target_y = Some(flee_y);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Look for resources (both predators and prey eat resources)
         for resource in resources {
             if resource.is_available() {
                 let distance = resource.distance_to(self.x, self.y);
@@ -170,40 +213,44 @@ impl Agent {
                     let score = resource.energy / (distance + 1.0);
                     if score > best_score {
                         best_score = score;
-                        best_target = Some((resource.x, resource.y, false));
+                        best_target = Some((resource.x, resource.y, false, "resource"));
                     }
                 }
             }
         }
 
-        // Look for other agents (potential prey or threats)
-        for agent in agents {
-            if agent.id() != self.id() {
-                let distance = self.distance_to(agent.x, agent.y);
-                if distance <= self.genes.sense_range {
-                    let size_ratio = agent.genes.size / self.genes.size;
-                    let energy_ratio = agent.energy / self.energy;
+        // Look for other agents (predator vs predator fights)
+        if self.is_predator() {
+            for agent in agents {
+                if agent.id() != self.id() && agent.is_predator() {
+                    let distance = self.distance_to(agent.x, agent.y);
+                    if distance <= self.genes.sense_range * 0.5 {
+                        let size_ratio = agent.genes.size / self.genes.size;
+                        let energy_ratio = agent.energy / self.energy;
+                        let attack_ratio = self.genes.attack_power / agent.genes.attack_power;
 
-                    // Decide whether to hunt or flee
-                    if size_ratio < 0.7 && energy_ratio > 0.5 && self.genes.aggression > 0.3 {
-                        // Hunt smaller agent with good energy
-                        let score = agent.energy / (distance + 1.0) * self.genes.aggression;
-                        if score > best_score {
-                            best_score = score;
-                            best_target = Some((agent.x, agent.y, true));
+                        // Fight other predators if we have advantage
+                        if size_ratio < 0.8 && energy_ratio > 0.7 && attack_ratio > 1.2 && self.genes.aggression > 0.6 {
+                            let score = agent.energy / (distance + 1.0) * self.genes.aggression * attack_ratio;
+                            if score > best_score {
+                                best_score = score;
+                                best_target = Some((agent.x, agent.y, true, "predator"));
+                            }
+                        } else if size_ratio > 1.2 && attack_ratio < 0.8 {
+                            // Flee from stronger predator
+                            self.state = AgentState::Fleeing;
+                            let flee_x = self.x - (agent.x - self.x) * 1.5;
+                            let flee_y = self.y - (agent.y - self.y) * 1.5;
+                            self.target_x = Some(flee_x);
+                            self.target_y = Some(flee_y);
+                            return;
                         }
-                    } else if size_ratio > 1.3 && self.genes.aggression < 0.5 {
-                        // Flee from larger agent
-                        self.state = AgentState::Fleeing;
-                        self.target_x = Some(self.x - (agent.x - self.x));
-                        self.target_y = Some(self.y - (agent.y - self.y));
-                        return;
                     }
                 }
             }
         }
 
-        if let Some((tx, ty, is_agent)) = best_target {
+        if let Some((tx, ty, is_agent, target_type)) = best_target {
             self.target_x = Some(tx);
             self.target_y = Some(ty);
             self.state = if is_agent {
@@ -227,10 +274,16 @@ impl Agent {
                 // Close enough to interact
                 self.state = AgentState::Feeding;
             } else {
-                // Move towards target
-                let speed = self.genes.speed * 2.0;
-                self.dx = (dx / distance) * speed;
-                self.dy = (dy / distance) * speed;
+                // Move towards target with predator-specific speed
+                let base_speed = self.genes.speed;
+                let hunting_speed = if self.is_predator() {
+                    base_speed * self.genes.hunting_speed * 2.0
+                } else {
+                    base_speed * 2.0
+                };
+                
+                self.dx = (dx / distance) * hunting_speed;
+                self.dy = (dy / distance) * hunting_speed;
             }
         } else {
             self.state = AgentState::Seeking;
@@ -269,17 +322,44 @@ impl Agent {
         if let (Some(_tx), Some(_ty)) = (self.target_x, self.target_y) {
             for agent in agents {
                 if agent.distance_to(self.x, self.y) < 5.0 {
-                    // Combat mechanics
-                    let my_power = self.genes.size * self.genes.aggression * self.energy;
-                    let their_power = agent.genes.size * agent.genes.aggression * agent.energy;
+                    // Enhanced combat mechanics using predator genes
+                    let my_attack = self.genes.attack_power * self.genes.size * self.energy * 0.01;
+                    let my_defense = self.genes.defense * self.genes.size;
+                    let their_attack = agent.genes.attack_power * agent.genes.size * agent.energy * 0.01;
+                    let their_defense = agent.genes.defense * agent.genes.size;
+                    
+                    // Calculate combat outcome
+                    let my_effective_power = my_attack / (their_defense + 1.0);
+                    let their_effective_power = their_attack / (my_defense + 1.0);
+                    
+                    // Add intelligence and stamina factors
+                    let my_intelligence_bonus = self.genes.intelligence * 0.5;
+                    let my_stamina_bonus = self.genes.stamina * 0.3;
+                    let their_intelligence_bonus = agent.genes.intelligence * 0.5;
+                    let their_stamina_bonus = agent.genes.stamina * 0.3;
+                    
+                    let my_total_power = my_effective_power * (1.0 + my_intelligence_bonus + my_stamina_bonus);
+                    let their_total_power = their_effective_power * (1.0 + their_intelligence_bonus + their_stamina_bonus);
 
-                    if my_power > their_power * 1.2 {
-                        // Win the fight
-                        self.energy += agent.energy * 0.5;
+                    if my_total_power > their_total_power {
+                        // Win the fight - predators get more energy from prey
+                        let energy_gain = if self.is_predator() && agent.is_prey() {
+                            agent.energy * 0.8 // Predators get more energy from prey
+                        } else {
+                            agent.energy * 0.4 // Less energy from predator fights
+                        };
+                        
+                        self.energy += energy_gain;
                         self.kills += 1;
+                        
+                        // Predators get bonus energy from successful hunts
+                        if self.is_predator() {
+                            self.energy += 10.0 * self.genes.attack_power;
+                        }
                     } else {
                         // Lose the fight
-                        self.energy *= 0.7;
+                        let damage = their_total_power * 0.1;
+                        self.energy -= damage;
                         self.state = AgentState::Fleeing;
                     }
                     break;
@@ -379,6 +459,14 @@ impl Agent {
 
     pub fn is_alive(&self) -> bool {
         self.energy > 0.0 && self.age < 1000.0
+    }
+
+    pub fn is_predator(&self) -> bool {
+        self.genes.is_predator > 0.5
+    }
+
+    pub fn is_prey(&self) -> bool {
+        !self.is_predator()
     }
 
     pub fn create_offspring(&self, other: &Agent) -> Self {

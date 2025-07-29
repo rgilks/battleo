@@ -1,16 +1,17 @@
 # Battle Simulation
 
-A complex agent-based simulation with genetic evolution, resource competition, and dynamic population dynamics.
+A complex agent-based simulation with genetic evolution, predator-prey dynamics, resource competition, and dynamic population dynamics.
 
 ## Features
 
-- **Agent Evolution**: Agents have genes that affect speed, size, aggression, sense range, and energy efficiency
+- **🦖 Predator-Prey Ecosystem**: Complex predator-prey dynamics with 10 new predator genes
+- **Agent Evolution**: 18 genes total affecting behavior, combat, hunting, and survival
 - **Resource Competition**: Agents compete for limited resources in a 2D environment
 - **Genetic Reproduction**: Successful agents can reproduce, passing on their genes with mutations
 - **Dynamic Population**: Population sizes fluctuate based on resource availability and competition
 - **WebGL Rendering**: High-performance rendering with WebGL support and color-coded agents
 - **Headless Mode**: Run simulations without a web interface for testing and optimization
-- **Optimized Performance**: 10x faster simulation with minimal logging overhead
+- **Ultra-Fast Performance**: 60 FPS simulation (5x faster than before!)
 - **Parallel Processing**: Multi-core CPU utilization for complex calculations
 
 ## Quick Start
@@ -33,11 +34,56 @@ To run the simulation in your browser:
 
 ### Performance Features
 
-- **10x Faster Simulation**: Optimized delta time and resource spawning
+- **60 FPS Simulation**: Ultra-fast 60 FPS updates (5x faster than before!)
 - **Clean Console**: Minimal logging for better performance
 - **Color-Coded Agents**: Visual representation based on genes and energy
+- **Predator-Prey Visualization**: Red/Orange predators vs Blue/Green prey
 - **WebGL Acceleration**: Hardware-accelerated rendering when available
 - **Canvas 2D Fallback**: Automatic fallback for WebGL-incompatible browsers
+
+## 🦖 Predator-Prey Ecosystem
+
+The simulation now features a complex predator-prey ecosystem with 18 different genes controlling behavior:
+
+### Predator Genes (10 New Genes!)
+- **`is_predator`** - Probability of being a predator (0.0-1.0)
+- **`hunting_speed`** - Speed multiplier when hunting (1.0-3.0)
+- **`attack_power`** - Damage dealt when attacking (0.1-3.0)
+- **`defense`** - Resistance to attacks (0.1-3.0)
+- **`stealth`** - Ability to sneak up on prey (0.0-1.0)
+- **`pack_mentality`** - Tendency to hunt in groups (0.0-1.0)
+- **`territory_size`** - Size of hunting territory (10-300)
+- **`metabolism`** - How fast energy is consumed (0.1-3.0)
+- **`intelligence`** - Learning and adaptation ability (0.1-3.0)
+- **`stamina`** - How long can chase prey (0.1-3.0)
+
+### Original Genes (8 Genes)
+- **`speed`** - Movement speed multiplier
+- **`sense_range`** - How far agents can sense resources and other agents
+- **`size`** - Physical size affecting energy consumption and reproduction
+- **`energy_efficiency`** - How efficiently agents use energy
+- **`reproduction_threshold`** - Energy needed to reproduce
+- **`mutation_rate`** - How likely genes are to mutate
+- **`aggression`** - How likely to attack other agents
+- **`color_hue`** - Visual trait for identification
+
+### Predator Behavior
+- **Hunt Prey First** - Predators prioritize hunting prey over resources
+- **Territory-Based Hunting** - Use territory size to determine hunting range
+- **Stealth & Intelligence** - Better predators use stealth and intelligence bonuses
+- **Enhanced Combat** - Complex combat system using attack/defense/intelligence/stamina
+- **Energy Rewards** - Predators get 80% energy from prey vs 40% from predator fights
+- **Hunting Speed** - Predators move faster when hunting with hunting speed multiplier
+
+### Prey Behavior
+- **Flee from Predators** - Prey automatically flee when predators are detected
+- **Enhanced Awareness** - Use sense range to detect and avoid predators
+- **Survival Instincts** - Prey prioritize survival over resource gathering when threatened
+
+### Visual Distinction
+- **Predators**: Red to orange colors (0-60° hue) with high saturation and brightness
+- **Prey**: Blue to green colors (180-240° hue) with normal saturation
+- **Attack Power Visualization**: Stronger predators glow more intensely
 
 ## Headless Simulation
 
@@ -163,20 +209,23 @@ The simulation uses Rayon for parallel processing:
 
 ### Performance Optimizations
 
-- **10x Speed Increase**: Optimized delta time (1/12s) and resource spawning
+- **60 FPS Simulation**: Ultra-fast 60 FPS updates (5x faster than before!)
 - **Reduced Logging**: Minimal console output for better performance
 - **WebGL Rendering**: Hardware-accelerated graphics with color-coded agents
 - **Parallel Processing**: Multi-core CPU utilization
 - **Optimized Algorithms**: Efficient spatial queries and updates
 - **Memory Management**: Minimal allocations during simulation
 - **Smart Calculations**: Complex calculations only when beneficial
+- **Enhanced Combat**: Fast predator-prey interactions with complex gene calculations
 
 ### Visual Features
 
 - **Color-Coded Agents**: HSL color based on genes (speed, sense, size) and energy
-- **Resource Visualization**: Color intensity based on energy content
+- **Predator-Prey Visualization**: Red/Orange predators vs Blue/Green prey
+- **Resource Visualization**: Color intensity based on energy content with growth animation
 - **WebGL Shaders**: Custom vertex and fragment shaders for efficient rendering
 - **Canvas 2D Fallback**: Automatic fallback for WebGL-incompatible browsers
+- **Dynamic Resource Growth**: Resources grow and shrink smoothly based on energy
 
 ## Development
 
@@ -248,22 +297,33 @@ This will help you find parameters that create stable, dynamic simulations that 
 
 ## Recent Improvements
 
+### 🦖 Predator-Prey Ecosystem
+- **18 Total Genes**: Expanded from 8 to 18 genes with 10 new predator genes
+- **Complex Combat System**: Attack/defense/intelligence/stamina calculations
+- **Territorial Behavior**: Predators have hunting territories and pack mentality
+- **Enhanced AI**: Smart predator hunting and prey fleeing behaviors
+- **Visual Distinction**: Clear predator-prey color coding (Red/Orange vs Blue/Green)
+
 ### Performance Enhancements
-- **10x Faster Simulation**: Optimized timing and resource spawning
+- **60 FPS Simulation**: Ultra-fast 60 FPS updates (5x faster than before!)
 - **Reduced Logging**: Clean console output for better performance
 - **Smart Calculations**: Complex calculations only when beneficial
 - **Optimized Reproduction**: Better population control and energy management
+- **Enhanced Combat**: Fast predator-prey interactions
 
 ### Visual Improvements
 - **Color-Coded Agents**: Visual representation based on genetic traits
+- **Predator-Prey Visualization**: Red/Orange predators vs Blue/Green prey
 - **WebGL Optimization**: Hardware-accelerated rendering
-- **Better Resource Visualization**: Energy-based color coding
+- **Better Resource Visualization**: Energy-based color coding with growth animation
+- **Dynamic Resource Growth**: Resources grow and shrink smoothly
 
 ### Stability Improvements
 - **Population Control**: Better reproduction and death mechanics
 - **Gene Stability**: Reduced mutation rates and better clamping
 - **Resource Management**: Improved spawning and distribution
-- **Energy Balance**: Better energy consumption and efficiency
+- **Energy Balance**: Better energy consumption and efficiency with metabolism genes
+- **Ecosystem Balance**: Predator-prey population dynamics
 
 ## Troubleshooting
 

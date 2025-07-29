@@ -105,6 +105,22 @@ impl BattleSimulation {
         }
     }
 
+    pub fn force_webgl(&mut self) -> bool {
+        // Try to force WebGL initialization
+        match WebGlRenderer::new(self.canvas.clone()) {
+            Ok(renderer) => {
+                self.webgl_renderer = Some(renderer);
+                self.use_webgl = true;
+                web_sys::console::log_1(&"WebGL forced successfully!".into());
+                true
+            }
+            Err(e) => {
+                web_sys::console::log_1(&format!("Failed to force WebGL: {:?}", e).into());
+                false
+            }
+        }
+    }
+
     pub fn add_agent(&mut self, x: f64, y: f64) {
         self.simulation.add_agent(x, y);
     }
@@ -139,11 +155,31 @@ impl BattleSimulation {
             renderer.update_agents(&self.simulation.agents);
             renderer.update_resources(&self.simulation.resources);
             renderer.render();
+
+            // Debug: Log rendering info only occasionally
+            static mut FRAME_COUNT: u32 = 0;
+            unsafe {
+                FRAME_COUNT += 1;
+                if FRAME_COUNT % 60 == 0 {
+                    // Log once per second at 60fps
+                    web_sys::console::log_1(
+                        &format!(
+                            "WebGL Rendering: {} agents, {} resources",
+                            self.simulation.agents.len(),
+                            self.simulation.resources.len()
+                        )
+                        .into(),
+                    );
+                }
+            }
+        } else {
+            web_sys::console::log_1(&"WebGL renderer is None!".into());
         }
     }
 
     fn render_canvas2d(&self) {
         // Fallback to Canvas 2D rendering
+        web_sys::console::log_1(&"Using Canvas 2D rendering".into());
         let ctx = match self.canvas.get_context("2d") {
             Ok(Some(context)) => match context.dyn_into::<CanvasRenderingContext2d>() {
                 Ok(ctx) => ctx,

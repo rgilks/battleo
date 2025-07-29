@@ -77,7 +77,7 @@ impl Simulation {
     }
 
     pub fn update(&mut self) {
-        let delta_time = 1.0 / 12.0; // Changed from 1.0/120.0 to 1.0/12.0 (10x faster)
+        let delta_time = 1.0 / 60.0; // Much faster simulation (60 FPS instead of 12 FPS)
         self.time += delta_time;
 
         // Update resources in parallel
@@ -85,8 +85,8 @@ impl Simulation {
 
         // Spawn new resources more frequently
         self.resource_spawn_timer += delta_time;
-        if self.resource_spawn_timer > 0.02 && self.resources.len() < self.max_resources {
-            // Much more frequent spawning (10x faster)
+        if self.resource_spawn_timer > 0.01 && self.resources.len() < self.max_resources {
+            // Much more frequent spawning (100x faster than original)
             self.spawn_resource();
             self.resource_spawn_timer = 0.0;
         }
