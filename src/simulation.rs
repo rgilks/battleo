@@ -4,9 +4,11 @@ use crate::resource::Resource;
 use rand::prelude::*;
 use rand_distr::{Normal, Uniform};
 use rayon::prelude::*;
-use rayon::ThreadPoolBuilder;
 use serde::Serialize;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
+use wasm_bindgen_rayon::init_thread_pool;
+
+static INIT: Once = Once::new();
 
 #[derive(Clone, Serialize)]
 pub struct SimulationStats {
@@ -41,10 +43,10 @@ pub struct Simulation {
 
 impl Simulation {
     pub fn new(width: f64, height: f64) -> Self {
-        // Configure thread pool to use all available cores
-        let _ = ThreadPoolBuilder::new()
-            .num_threads(8) // Use all 8 performance cores
-            .build_global();
+        // Initialize thread pool for WebAssembly only once
+        INIT.call_once(|| {
+            let _ = init_thread_pool(8); // Use 8 threads for WebAssembly
+        });
 
         // Initialize spatial grid for efficient neighbor lookups
         let grid_cell_size = 50.0; // Cell size for spatial partitioning
@@ -76,7 +78,10 @@ impl Simulation {
     fn get_grid_position(&self, x: f64, y: f64) -> (usize, usize) {
         let grid_x = (x / self.grid_cell_size).floor() as usize;
         let grid_y = (y / self.grid_cell_size).floor() as usize;
-        (grid_x.min(self.grid_width - 1), grid_y.min(self.grid_height - 1))
+        (
+            grid_x.min(self.grid_width - 1),
+            grid_y.min(self.grid_height - 1),
+        )
     }
 
     fn get_nearby_agents(&self, x: f64, y: f64, radius: f64) -> Vec<usize> {
@@ -88,7 +93,7 @@ impl Simulation {
             for dy in -(grid_radius as i32)..=(grid_radius as i32) {
                 let grid_x = (center_x as i32 + dx) as usize;
                 let grid_y = (center_y as i32 + dy) as usize;
-                
+
                 if grid_x < self.grid_width && grid_y < self.grid_height {
                     nearby.extend(&self.spatial_grid[grid_x][grid_y]);
                 }
@@ -281,9 +286,17 @@ impl Simulation {
         if num_agents > 10 && num_resources > 10 {
             // Use spatial grid for efficient neighbor lookups - O(n) instead of O(n²)
             // Collect all agent positions and nearby indices first to avoid borrowing issues
-            let agent_positions: Vec<_> = self.agents.iter().map(|a| (a.x, a.y, a.energy, a.genes.speed)).collect();
-            let nearby_indices: Vec<_> = self.agents.iter().map(|agent| self.get_nearby_agents(agent.x, agent.y, 100.0)).collect();
-            
+            let agent_positions: Vec<_> = self
+                .agents
+                .iter()
+                .map(|a| (a.x, a.y, a.energy, a.genes.speed))
+                .collect();
+            let nearby_indices: Vec<_> = self
+                .agents
+                .iter()
+                .map(|agent| self.get_nearby_agents(agent.x, agent.y, 100.0))
+                .collect();
+
             self.agents
                 .par_iter_mut()
                 .enumerate()
@@ -294,9 +307,12 @@ impl Simulation {
                     if i < nearby_indices.len() {
                         for &j in &nearby_indices[i] {
                             if i != j && j < agent_positions.len() {
-                                let (other_x, other_y, other_energy, other_speed) = agent_positions[j];
-                                let distance = ((agent.x - other_x).powi(2) + (agent.y - other_y).powi(2)).sqrt();
-                                
+                                let (other_x, other_y, other_energy, other_speed) =
+                                    agent_positions[j];
+                                let distance = ((agent.x - other_x).powi(2)
+                                    + (agent.y - other_y).powi(2))
+                                .sqrt();
+
                                 if distance < 100.0 && distance > 0.0 {
                                     // Efficient interaction calculation
                                     let force = 1.0 / (distance * distance + 1.0);
@@ -309,7 +325,8 @@ impl Simulation {
                                     let fy = combined_force * angle.sin();
 
                                     // Simple interaction types
-                                    let repulsion = if distance < 10.0 { 1.0 / distance } else { 0.0 };
+                                    let repulsion =
+                                        if distance < 10.0 { 1.0 / distance } else { 0.0 };
                                     let attraction = if distance > 20.0 && distance < 80.0 {
                                         0.1 / distance
                                     } else {
