@@ -4,6 +4,7 @@ use crate::resource::Resource;
 use rand::prelude::*;
 use rand_distr::{Normal, Uniform};
 use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
 
@@ -36,6 +37,11 @@ pub struct Simulation {
 
 impl Simulation {
     pub fn new(width: f64, height: f64) -> Self {
+        // Configure thread pool to use all available cores
+        let _ = ThreadPoolBuilder::new()
+            .num_threads(8) // Use all 8 performance cores
+            .build_global();
+
         let mut simulation = Self {
             agents: Vec::new(),
             resources: Vec::new(),
@@ -108,19 +114,9 @@ impl Simulation {
     }
 
     fn update_resources_parallel(&mut self, delta_time: f64) {
-        // Enhanced parallel resource updates with additional computational work
+        // Efficient parallel resource updates
         self.resources.par_iter_mut().for_each(|resource| {
-            // Perform additional calculations per resource to increase work load
-            let mut additional_work = 0.0;
-            for _ in 0..5 {
-                // Add computational work
-                additional_work += (resource.x * resource.y * self.time).cos().abs();
-            }
-
             resource.update(delta_time);
-
-            // Apply additional work effects
-            resource.energy += additional_work * 0.00001;
         });
     }
 
@@ -128,24 +124,13 @@ impl Simulation {
         // Create shared references for parallel processing
         let resources = Arc::new(self.resources.clone());
 
-        // Enhanced parallel agent processing with more work per core
+        // Efficient parallel agent processing
         let agent_updates: Vec<_> = self
             .agents
             .par_iter_mut()
             .enumerate()
             .map(|(i, agent)| {
-                // Perform additional calculations per agent to increase work load
-                let mut additional_work = 0.0;
-                for _ in 0..10 {
-                    // Add computational work
-                    additional_work += (agent.x * agent.y * self.time).sin().abs();
-                }
-
                 let consumed = agent.update(delta_time, &resources, &[], self.width, self.height);
-
-                // Apply additional work effects
-                agent.energy += additional_work * 0.00001;
-
                 (i, consumed)
             })
             .collect();
@@ -232,12 +217,12 @@ impl Simulation {
     }
 
     fn perform_complex_calculations(&mut self) {
-        // Enhanced parallel calculations to utilize all 8 performance cores
+        // Efficient parallel calculations to utilize all 8 performance cores
         let num_agents = self.agents.len();
         let num_resources = self.resources.len();
 
-        // Always perform calculations to keep all cores busy
-        if num_agents > 3 && num_resources > 3 {
+        // Only perform calculations if we have enough entities
+        if num_agents > 10 && num_resources > 10 {
             // Enhanced agent-to-agent interaction calculations with more work
             let agent_positions: Vec<_> = self
                 .agents
@@ -245,46 +230,36 @@ impl Simulation {
                 .map(|agent| (agent.x, agent.y, agent.energy, agent.genes.speed))
                 .collect();
 
-            // Calculate comprehensive interaction matrices in parallel with much more work
+            // Calculate efficient interaction matrices in parallel
             let interaction_matrix: Vec<_> = agent_positions
                 .par_iter()
                 .enumerate()
                 .map(|(i, &(x1, y1, energy1, speed1))| {
                     let mut interactions = Vec::new();
                     
-                    // Add intensive computational work to utilize all cores
-                    let mut computational_work = 0.0;
-                    for _ in 0..50 { // Much more work per agent
-                        computational_work += (x1 * y1 * energy1 * speed1 * self.time).sin().abs();
-                    }
-                    
                     for (j, &(x2, y2, energy2, speed2)) in agent_positions.iter().enumerate() {
                         if i != j {
                             let distance = ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt();
-                            if distance < 150.0 { // Increased range for more interactions
-                                // Enhanced interaction calculation with multiple factors
+                            if distance < 100.0 { // Reasonable interaction range
+                                // Efficient interaction calculation
                                 let force = 1.0 / (distance * distance + 1.0);
                                 let energy_factor = (energy1 + energy2) / 200.0;
                                 let speed_factor = (speed1 + speed2) / 2.0;
-                                let combined_force = force * energy_factor * speed_factor * (1.0 + computational_work * 0.001);
+                                let combined_force = force * energy_factor * speed_factor;
 
                                 let angle = (y2 - y1).atan2(x2 - x1);
                                 let fx = combined_force * angle.cos();
                                 let fy = combined_force * angle.sin();
 
-                                // Add multiple interaction types with more complexity
-                                let repulsion = if distance < 15.0 { 1.0 / distance } else { 0.0 };
-                                let attraction = if distance > 25.0 && distance < 100.0 {
+                                // Simple interaction types
+                                let repulsion = if distance < 10.0 { 1.0 / distance } else { 0.0 };
+                                let attraction = if distance > 20.0 && distance < 80.0 {
                                     0.1 / distance
                                 } else {
                                     0.0
                                 };
-                                
-                                // Add more complex interactions
-                                let time_factor = (self.time * 0.1).sin();
-                                let spatial_factor = ((x1 + x2) * (y1 + y2)).sin() * 0.01;
 
-                                interactions.push((j, fx, fy, repulsion, attraction, time_factor, spatial_factor));
+                                interactions.push((j, fx, fy, repulsion, attraction));
                             }
                         }
                     }
@@ -292,15 +267,15 @@ impl Simulation {
                 })
                 .collect();
 
-            // Apply enhanced interaction forces in parallel
+            // Apply efficient interaction forces in parallel
             self.agents
                 .par_iter_mut()
                 .enumerate()
                 .for_each(|(i, agent)| {
                     if i < interaction_matrix.len() {
-                        for (_, fx, fy, repulsion, attraction, time_factor, spatial_factor) in &interaction_matrix[i] {
-                            agent.dx += fx * 0.001 + repulsion * 0.01 - attraction * 0.005 + *time_factor * 0.001 + *spatial_factor;
-                            agent.dy += fy * 0.001 + repulsion * 0.01 - attraction * 0.005 + *time_factor * 0.001 + *spatial_factor;
+                        for (_, fx, fy, repulsion, attraction) in &interaction_matrix[i] {
+                            agent.dx += fx * 0.001 + repulsion * 0.01 - attraction * 0.005;
+                            agent.dy += fy * 0.001 + repulsion * 0.01 - attraction * 0.005;
                         }
                     }
                 });
@@ -319,37 +294,30 @@ impl Simulation {
                 .sum();
             let average_energy = total_energy / num_resources as f64;
 
-            // Calculate comprehensive resource statistics in parallel with much more work
+            // Calculate efficient resource statistics in parallel
             let resource_stats: Vec<_> = resource_data
                 .par_iter()
                 .map(|(energy, x, y, size)| {
-                    // Add intensive computational work to utilize all cores
-                    let mut computational_work = 0.0;
-                    for _ in 0..30 { // Much more work per resource
-                        computational_work += (x * y * energy * size * self.time).cos().abs();
-                    }
-                    
                     let energy_variance = (energy - average_energy).powi(2);
                     let spatial_factor = ((x * x + y * y).sqrt() / 1000.0).sin();
                     let size_factor = size / 10.0;
-                    let work_factor = computational_work * 0.001;
-                    (energy_variance, spatial_factor, size_factor, work_factor)
+                    (energy_variance, spatial_factor, size_factor)
                 })
                 .collect();
 
             let total_variance: f64 = resource_stats
                 .par_iter()
-                .map(|(variance, _, _, _)| variance)
+                .map(|(variance, _, _)| variance)
                 .sum::<f64>()
                 / num_resources as f64;
             let spatial_balance: f64 = resource_stats
                 .par_iter()
-                .map(|(_, spatial, _, _)| spatial)
+                .map(|(_, spatial, _)| spatial)
                 .sum::<f64>()
                 / num_resources as f64;
             let size_balance: f64 = resource_stats
                 .par_iter()
-                .map(|(_, _, size, _)| size)
+                .map(|(_, _, size)| size)
                 .sum::<f64>()
                 / num_resources as f64;
 
