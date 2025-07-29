@@ -43,8 +43,8 @@ impl Simulation {
             height,
             time: 0.0,
             resource_spawn_timer: 0.0,
-            max_agents: 5000,    // Increased from 1000
-            max_resources: 2000, // Increased from 1000 - more food
+            max_agents: 10000,   // Increased from 5000 - twice as many agents
+            max_resources: 3000, // Increased from 2000 - more food
         };
 
         // Initialize with some agents and resources
@@ -56,8 +56,8 @@ impl Simulation {
     fn spawn_initial_population(&mut self) {
         let mut rng = thread_rng();
 
-        // Spawn initial agents - much smaller for web interface
-        let initial_agents = (self.max_agents as f64 * 0.05) as usize; // Reduced from 0.1 to 0.05 (5% of max)
+        // Spawn initial agents - increased for more activity
+        let initial_agents = (self.max_agents as f64 * 0.1) as usize; // Increased from 0.05 to 0.1 (10% of max)
         for _ in 0..initial_agents {
             let x = rng.gen_range(0.0..self.width);
             let y = rng.gen_range(0.0..self.height);
@@ -66,8 +66,8 @@ impl Simulation {
             self.agents.push(agent);
         }
 
-        // Spawn initial resources - much smaller for web interface
-        let initial_resources = (self.max_resources as f64 * 0.15) as usize; // Reduced from 0.3 to 0.15 (15% of max)
+        // Spawn initial resources - increased for more food
+        let initial_resources = (self.max_resources as f64 * 0.2) as usize; // Increased from 0.15 to 0.2 (20% of max)
         for _ in 0..initial_resources {
             let x = rng.gen_range(0.0..self.width);
             let y = rng.gen_range(0.0..self.height);
@@ -99,6 +99,9 @@ impl Simulation {
 
         // Clean up dead agents
         self.cleanup_dead_agents();
+
+        // Clean up fully depleted resources
+        self.cleanup_depleted_resources();
 
         // Add some complex calculations to utilize CPU cores
         self.perform_complex_calculations();
@@ -134,12 +137,11 @@ impl Simulation {
             }
         }
 
-        // Remove consumed resources (in reverse order to maintain indices)
-        consumed_indices.sort_unstable();
-        consumed_indices.reverse();
+        // Mark consumed resources for depletion (let them fade out instead of removing immediately)
         for &index in &consumed_indices {
             if index < self.resources.len() {
-                self.resources.remove(index);
+                self.resources[index].is_depleting = true;
+                self.resources[index].deplete_fade = 0.0;
             }
         }
     }
@@ -148,16 +150,16 @@ impl Simulation {
         // Use Rayon to handle reproduction in parallel
         let mut new_agents = Vec::new();
 
-        // Much more restrictive population control
-        let safe_population_threshold = (self.max_agents as f64 * 0.6) as usize; // Reduced from 0.8
+        // More permissive population control for more agents
+        let safe_population_threshold = (self.max_agents as f64 * 0.8) as usize; // Increased from 0.6
 
         if self.agents.len() >= safe_population_threshold {
             return; // Don't reproduce if population is too high
         }
 
-        // Only allow reproduction if population is growing slowly
+        // More permissive reproduction conditions
         let population_growth_rate = self.agents.len() as f64 / self.max_agents as f64;
-        if population_growth_rate > 0.4 {
+        if population_growth_rate > 0.6 {
             return; // Don't reproduce if population is already substantial
         }
 
@@ -320,6 +322,12 @@ impl Simulation {
 
     fn cleanup_dead_agents(&mut self) {
         self.agents.retain(|agent| agent.is_alive());
+    }
+
+    fn cleanup_depleted_resources(&mut self) {
+        // Remove resources that have fully faded out
+        self.resources
+            .retain(|resource| !resource.is_depleting || resource.deplete_fade < 1.0);
     }
 
     pub fn add_agent(&mut self, x: f64, y: f64) {
