@@ -1,4 +1,4 @@
-use crate::agent::Agent;
+use crate::agent::{Agent, DeathReason};
 use crate::resource::Resource;
 use wasm_bindgen::prelude::*;
 use web_sys::{
@@ -466,28 +466,42 @@ void main() {
                 agent_data.extend_from_slice(&(agent.y as f32).to_le_bytes());
                 self.agent_positions.push((agent.x as f32, agent.y as f32));
 
-                // Enhanced color based on genes and energy with predator distinction
+                // Enhanced color based on genes and energy with predator distinction and death states
                 let is_predator = agent.genes.is_predator > 0.5;
 
-                let hue = if is_predator {
-                    // Predators: Red to orange range (0-60 degrees)
-                    (agent.genes.attack_power * 60.0 + agent.genes.aggression * 30.0) % 60.0
+                // Handle death colors
+                let (hue, saturation, lightness) = if agent.is_dying {
+                    match agent.death_reason {
+                        Some(DeathReason::Starvation) => (0.0, 0.8, 0.3), // Dark red for starvation
+                        Some(DeathReason::OldAge) => (30.0, 0.6, 0.4), // Orange for old age
+                        Some(DeathReason::KilledByPredator) => (0.0, 1.0, 0.2), // Bright red for predation
+                        Some(DeathReason::Combat) => (15.0, 0.9, 0.3), // Red-orange for combat
+                        Some(DeathReason::NaturalCauses) => (60.0, 0.5, 0.4), // Yellow for natural causes
+                        None => (0.0, 0.7, 0.3), // Default dark red
+                    }
                 } else {
-                    // Prey: Blue to green range (180-240 degrees)
-                    (agent.genes.speed * 60.0 + agent.genes.sense_range * 0.5 + 180.0) % 60.0
-                        + 180.0
-                };
+                    let base_hue = if is_predator {
+                        // Predators: Red to orange range (0-60 degrees)
+                        (agent.genes.attack_power * 60.0 + agent.genes.aggression * 30.0) % 60.0
+                    } else {
+                        // Prey: Blue to green range (180-240 degrees)
+                        (agent.genes.speed * 60.0 + agent.genes.sense_range * 0.5 + 180.0) % 60.0
+                            + 180.0
+                    };
 
-                let saturation = if is_predator {
-                    0.95 + agent.genes.attack_power * 0.05 // Predators more saturated
-                } else {
-                    0.9 + agent.genes.size * 0.1 // Prey normal saturation
-                };
+                    let base_saturation = if is_predator {
+                        0.95 + agent.genes.attack_power * 0.05 // Predators more saturated
+                    } else {
+                        0.9 + agent.genes.size * 0.1 // Prey normal saturation
+                    };
 
-                let lightness = if is_predator {
-                    0.6 + agent.energy * 0.003 + agent.genes.attack_power * 0.1 // Predators brighter
-                } else {
-                    0.5 + agent.energy * 0.004 // Prey normal brightness
+                    let base_lightness = if is_predator {
+                        0.6 + agent.energy * 0.003 + agent.genes.attack_power * 0.1 // Predators brighter
+                    } else {
+                        0.5 + agent.energy * 0.004 // Prey normal brightness
+                    };
+
+                    (base_hue, base_saturation, base_lightness)
                 };
 
                 // Convert HSL to RGB with enhanced vibrancy
@@ -515,11 +529,23 @@ void main() {
                         .to_le_bytes(),
                 );
 
-                // Size attribute
-                agent_data.extend_from_slice(&(agent.genes.size as f32).to_le_bytes());
+                // Size attribute with fade effects
+                let size_factor = if agent.is_dying {
+                    1.0 - agent.death_fade as f32 // Shrink when dying
+                } else {
+                    agent.spawn_fade as f32 // Grow when spawning
+                };
+                let adjusted_size = agent.genes.size as f32 * size_factor;
+                agent_data.extend_from_slice(&adjusted_size.to_le_bytes());
 
-                // Energy attribute
-                agent_data.extend_from_slice(&(agent.energy as f32).to_le_bytes());
+                // Energy attribute with fade effects
+                let energy_factor = if agent.is_dying {
+                    1.0 - agent.death_fade as f32 // Fade energy when dying
+                } else {
+                    agent.spawn_fade as f32 // Fade in energy when spawning
+                };
+                let adjusted_energy = agent.energy as f32 * energy_factor;
+                agent_data.extend_from_slice(&adjusted_energy.to_le_bytes());
             }
         }
 
@@ -965,19 +991,28 @@ void main() {
     }
 
     fn calculate_resource_growth(&self, index: usize, resource: &Resource) -> f32 {
-        // Simulate growth based on resource energy and time
-        // New resources start small and grow over time
-        // Resources being eaten shrink
-
+        // Calculate growth state based on energy and fade states
         let base_growth = (resource.energy / 100.0).min(1.0) as f32;
-
-        // Add some variation based on index and time for natural growth
-        let time_variation = (self.time * 0.5 + index as f32 * 0.1).sin() * 0.1;
-
-        // Resources with high energy are fully grown, low energy are shrinking
-        let growth_state = (base_growth + time_variation).max(0.1).min(1.0);
-
-        growth_state
+        
+        // Apply spawn fade-in
+        let spawn_factor = if resource.is_spawning {
+            resource.spawn_fade as f32
+        } else {
+            1.0
+        };
+        
+        // Apply depletion fade-out
+        let deplete_factor = if resource.is_depleting {
+            1.0 - resource.deplete_fade as f32
+        } else {
+            1.0
+        };
+        
+        // Combine all factors
+        let growth_state = base_growth * spawn_factor * deplete_factor;
+        
+        // Ensure minimum visibility during spawn
+        growth_state.max(0.1)
     }
 
     fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {

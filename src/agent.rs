@@ -19,6 +19,11 @@ pub struct Agent {
     pub last_reproduction: f64,
     pub kills: u32,
     pub generation: u32,
+    pub death_fade: f64, // Fade out timer when dying (0.0 = alive, 1.0 = fully faded)
+    pub death_reason: Option<DeathReason>, // Why the agent died
+    pub is_dying: bool,  // Whether the agent is in death animation
+    pub spawn_fade: f64, // Fade in timer for new agents (0.0 = invisible, 1.0 = fully visible)
+    pub spawn_position: Option<(f64, f64)>, // Position where agent was spawned
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -29,6 +34,15 @@ pub enum AgentState {
     Reproducing,
     Fighting,
     Fleeing,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum DeathReason {
+    Starvation,
+    OldAge,
+    KilledByPredator,
+    Combat,
+    NaturalCauses,
 }
 
 impl Agent {
@@ -51,6 +65,11 @@ impl Agent {
             last_reproduction: 0.0,
             kills: 0,
             generation,
+            death_fade: 0.0,
+            death_reason: None,
+            is_dying: false,
+            spawn_fade: 0.0, // Start invisible and fade in
+            spawn_position: Some((x, y)),
         }
     }
 
@@ -64,6 +83,24 @@ impl Agent {
     ) -> Option<usize> {
         self.age += delta_time;
 
+        // Handle spawn fade-in for new agents
+        if self.spawn_fade < 1.0 {
+            self.spawn_fade += delta_time * 3.0; // Fade in over 0.33 seconds
+            if self.spawn_fade >= 1.0 {
+                self.spawn_fade = 1.0;
+            }
+        }
+
+        // Handle death fade-out
+        if self.is_dying {
+            self.death_fade += delta_time * 2.0; // Fade out over 0.5 seconds
+            if self.death_fade >= 1.0 {
+                return None; // Agent is fully dead
+            }
+            // Don't update behavior when dying, just fade out
+            return None;
+        }
+
         // Enhanced energy consumption using metabolism gene
         let base_energy_cost = (self.genes.size * 0.01 + self.genes.speed * 0.005) * delta_time;
         let metabolism_factor = self.genes.metabolism;
@@ -71,9 +108,18 @@ impl Agent {
         let total_energy_cost = base_energy_cost * metabolism_factor * environmental_factor;
         self.energy -= total_energy_cost / self.genes.energy_efficiency;
 
-        // Death from old age or no energy
-        if self.energy <= 0.0 || self.age > 2000.0 {
-            // Increased max age from 1000
+        // Check for death and start death animation
+        if self.energy <= 0.0 {
+            self.is_dying = true;
+            self.death_reason = Some(DeathReason::Starvation);
+            self.death_fade = 0.0;
+            return None;
+        }
+        
+        if self.age > 2000.0 {
+            self.is_dying = true;
+            self.death_reason = Some(DeathReason::OldAge);
+            self.death_fade = 0.0;
             return None;
         }
 
@@ -175,9 +221,12 @@ impl Agent {
                         let distance_penalty = distance / self.genes.sense_range;
                         let stealth_bonus = self.genes.stealth;
                         let intelligence_bonus = self.genes.intelligence;
-                        
-                        let score = energy_score * (1.0 - distance_penalty) * (1.0 + stealth_bonus) * (1.0 + intelligence_bonus);
-                        
+
+                        let score = energy_score
+                            * (1.0 - distance_penalty)
+                            * (1.0 + stealth_bonus)
+                            * (1.0 + intelligence_bonus);
+
                         if score > best_score {
                             best_score = score;
                             best_target = Some((agent.x, agent.y, true, "prey"));
@@ -230,8 +279,14 @@ impl Agent {
                         let attack_ratio = self.genes.attack_power / agent.genes.attack_power;
 
                         // Fight other predators if we have advantage
-                        if size_ratio < 0.8 && energy_ratio > 0.7 && attack_ratio > 1.2 && self.genes.aggression > 0.6 {
-                            let score = agent.energy / (distance + 1.0) * self.genes.aggression * attack_ratio;
+                        if size_ratio < 0.8
+                            && energy_ratio > 0.7
+                            && attack_ratio > 1.2
+                            && self.genes.aggression > 0.6
+                        {
+                            let score = agent.energy / (distance + 1.0)
+                                * self.genes.aggression
+                                * attack_ratio;
                             if score > best_score {
                                 best_score = score;
                                 best_target = Some((agent.x, agent.y, true, "predator"));
@@ -281,7 +336,7 @@ impl Agent {
                 } else {
                     base_speed * 2.0
                 };
-                
+
                 self.dx = (dx / distance) * hunting_speed;
                 self.dy = (dy / distance) * hunting_speed;
             }
@@ -325,23 +380,26 @@ impl Agent {
                     // Enhanced combat mechanics using predator genes
                     let my_attack = self.genes.attack_power * self.genes.size * self.energy * 0.01;
                     let my_defense = self.genes.defense * self.genes.size;
-                    let their_attack = agent.genes.attack_power * agent.genes.size * agent.energy * 0.01;
+                    let their_attack =
+                        agent.genes.attack_power * agent.genes.size * agent.energy * 0.01;
                     let their_defense = agent.genes.defense * agent.genes.size;
-                    
+
                     // Calculate combat outcome
                     let my_effective_power = my_attack / (their_defense + 1.0);
                     let their_effective_power = their_attack / (my_defense + 1.0);
-                    
+
                     // Add intelligence and stamina factors
                     let my_intelligence_bonus = self.genes.intelligence * 0.5;
                     let my_stamina_bonus = self.genes.stamina * 0.3;
                     let their_intelligence_bonus = agent.genes.intelligence * 0.5;
                     let their_stamina_bonus = agent.genes.stamina * 0.3;
-                    
-                    let my_total_power = my_effective_power * (1.0 + my_intelligence_bonus + my_stamina_bonus);
-                    let their_total_power = their_effective_power * (1.0 + their_intelligence_bonus + their_stamina_bonus);
 
-                    if my_total_power > their_total_power {
+                    let my_total_power =
+                        my_effective_power * (1.0 + my_intelligence_bonus + my_stamina_bonus);
+                    let their_total_power = their_effective_power
+                        * (1.0 + their_intelligence_bonus + their_stamina_bonus);
+
+                                        if my_total_power > their_total_power {
                         // Win the fight - predators get more energy from prey
                         let energy_gain = if self.is_predator() && agent.is_prey() {
                             agent.energy * 0.8 // Predators get more energy from prey
@@ -356,10 +414,27 @@ impl Agent {
                         if self.is_predator() {
                             self.energy += 10.0 * self.genes.attack_power;
                         }
+                        
+                        // Check if opponent died from combat
+                        if agent.energy <= 0.0 {
+                            // Mark opponent as killed by predator or combat
+                            if self.is_predator() && agent.is_prey() {
+                                // This will be handled in the simulation loop
+                            }
+                        }
                     } else {
                         // Lose the fight
                         let damage = their_total_power * 0.1;
                         self.energy -= damage;
+                        
+                        // Check if we died from combat
+                        if self.energy <= 0.0 {
+                            self.is_dying = true;
+                            self.death_reason = Some(DeathReason::Combat);
+                            self.death_fade = 0.0;
+                            // Don't return None here, let the main update loop handle it
+                        }
+                        
                         self.state = AgentState::Fleeing;
                     }
                     break;
@@ -478,12 +553,20 @@ impl Agent {
         // Position offspring near parent
         let offset_x = rng.gen_range(-10.0..10.0);
         let offset_y = rng.gen_range(-10.0..10.0);
+        let spawn_x = self.x + offset_x;
+        let spawn_y = self.y + offset_y;
 
-        Self::new(
-            self.x + offset_x,
-            self.y + offset_y,
+        let mut offspring = Self::new(
+            spawn_x,
+            spawn_y,
             new_genes,
             self.generation + 1,
-        )
+        );
+        
+        // Set spawn position for proper fade-in
+        offspring.spawn_position = Some((spawn_x, spawn_y));
+        offspring.spawn_fade = 0.0; // Start invisible
+        
+        offspring
     }
 }
