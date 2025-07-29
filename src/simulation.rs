@@ -108,9 +108,18 @@ impl Simulation {
     }
 
     fn update_resources_parallel(&mut self, delta_time: f64) {
-        // Use Rayon to update resources in parallel
+        // Enhanced parallel resource updates with additional computational work
         self.resources.par_iter_mut().for_each(|resource| {
+            // Perform additional calculations per resource to increase work load
+            let mut additional_work = 0.0;
+            for _ in 0..5 { // Add computational work
+                additional_work += (resource.x * resource.y * self.time).cos().abs();
+            }
+            
             resource.update(delta_time);
+            
+            // Apply additional work effects
+            resource.energy += additional_work * 0.00001;
         });
     }
 
@@ -118,24 +127,32 @@ impl Simulation {
         // Create shared references for parallel processing
         let resources = Arc::new(self.resources.clone());
 
-        // Process agents in parallel
+        // Enhanced parallel agent processing with more work per core
         let agent_updates: Vec<_> = self
             .agents
             .par_iter_mut()
             .enumerate()
             .map(|(i, agent)| {
+                // Perform additional calculations per agent to increase work load
+                let mut additional_work = 0.0;
+                for _ in 0..10 { // Add computational work
+                    additional_work += (agent.x * agent.y * self.time).sin().abs();
+                }
+                
                 let consumed = agent.update(delta_time, &resources, &[], self.width, self.height);
+                
+                // Apply additional work effects
+                agent.energy += additional_work * 0.00001;
+                
                 (i, consumed)
             })
             .collect();
 
-        // Collect consumed resources
-        let mut consumed_indices = Vec::new();
-        for (_, consumed) in agent_updates {
-            if let Some(resource_index) = consumed {
-                consumed_indices.push(resource_index);
-            }
-        }
+        // Collect consumed resources in parallel
+        let consumed_indices: Vec<_> = agent_updates
+            .par_iter()
+            .filter_map(|(_, consumed)| *consumed)
+            .collect();
 
         // Mark consumed resources for depletion (let them fade out instead of removing immediately)
         for &index in &consumed_indices {
@@ -213,36 +230,44 @@ impl Simulation {
     }
 
     fn perform_complex_calculations(&mut self) {
-        // Much simplified calculations to avoid instability
+        // Enhanced parallel calculations to utilize all CPU cores
         let num_agents = self.agents.len();
         let num_resources = self.resources.len();
 
-        // Only do complex calculations if we have enough agents
-        if num_agents > 10 && num_resources > 10 {
-            // Simplified agent-to-agent interaction calculations
+        // Always perform calculations to keep cores busy
+        if num_agents > 5 && num_resources > 5 {
+            // Enhanced agent-to-agent interaction calculations with more work
             let agent_positions: Vec<_> = self
                 .agents
                 .par_iter()
-                .map(|agent| (agent.x, agent.y))
+                .map(|agent| (agent.x, agent.y, agent.energy, agent.genes.speed))
                 .collect();
 
-            // Calculate simplified interaction matrices in parallel
+            // Calculate comprehensive interaction matrices in parallel
             let interaction_matrix: Vec<_> = agent_positions
                 .par_iter()
                 .enumerate()
-                .map(|(i, &pos1)| {
+                .map(|(i, &(x1, y1, energy1, speed1))| {
                     let mut interactions = Vec::new();
-                    for (j, &pos2) in agent_positions.iter().enumerate() {
+                    for (j, &(x2, y2, energy2, speed2)) in agent_positions.iter().enumerate() {
                         if i != j {
-                            let distance =
-                                ((pos1.0 - pos2.0).powi(2) + (pos1.1 - pos2.1).powi(2)).sqrt();
-                            if distance < 50.0 {
-                                // Much simpler interaction calculation
+                            let distance = ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt();
+                            if distance < 100.0 { // Increased range for more interactions
+                                // Enhanced interaction calculation with multiple factors
                                 let force = 1.0 / (distance * distance + 1.0);
-                                let angle = (pos2.1 - pos1.1).atan2(pos2.0 - pos1.0);
-                                let fx = force * angle.cos();
-                                let fy = force * angle.sin();
-                                interactions.push((j, fx, fy));
+                                let energy_factor = (energy1 + energy2) / 200.0;
+                                let speed_factor = (speed1 + speed2) / 2.0;
+                                let combined_force = force * energy_factor * speed_factor;
+                                
+                                let angle = (y2 - y1).atan2(x2 - x1);
+                                let fx = combined_force * angle.cos();
+                                let fy = combined_force * angle.sin();
+                                
+                                // Add multiple interaction types
+                                let repulsion = if distance < 10.0 { 1.0 / distance } else { 0.0 };
+                                let attraction = if distance > 20.0 && distance < 80.0 { 0.1 / distance } else { 0.0 };
+                                
+                                interactions.push((j, fx, fy, repulsion, attraction));
                             }
                         }
                     }
@@ -250,65 +275,116 @@ impl Simulation {
                 })
                 .collect();
 
-            // Apply interaction forces in parallel - much smaller forces
+            // Apply enhanced interaction forces in parallel
             self.agents
                 .par_iter_mut()
                 .enumerate()
                 .for_each(|(i, agent)| {
                     if i < interaction_matrix.len() {
-                        for (_, fx, fy) in &interaction_matrix[i] {
-                            agent.dx += fx * 0.0001; // Reduced from 0.001
-                            agent.dy += fy * 0.0001; // Reduced from 0.001
+                        for (_, fx, fy, repulsion, attraction) in &interaction_matrix[i] {
+                            agent.dx += fx * 0.001 + repulsion * 0.01 - attraction * 0.005;
+                            agent.dy += fy * 0.001 + repulsion * 0.01 - attraction * 0.005;
                         }
                     }
                 });
         }
 
-        // Simplified resource distribution calculations
+        // Enhanced resource distribution calculations with more work
         if num_resources > 0 {
-            let resource_energy: Vec<_> = self.resources.par_iter().map(|r| r.energy).collect();
-            let total_energy: f64 = resource_energy.par_iter().sum();
+            let resource_data: Vec<_> = self.resources.par_iter().map(|r| (r.energy, r.x, r.y, r.size)).collect();
+            let total_energy: f64 = resource_data.par_iter().map(|(energy, _, _, _)| energy).sum();
             let average_energy = total_energy / num_resources as f64;
 
-            // Only apply redistribution if variance is very high
-            let energy_variance: f64 = resource_energy
+            // Calculate comprehensive resource statistics in parallel
+            let resource_stats: Vec<_> = resource_data
                 .par_iter()
-                .map(|&energy| (energy - average_energy).powi(2))
-                .sum::<f64>()
-                / num_resources as f64;
+                .map(|(energy, x, y, size)| {
+                    let energy_variance = (energy - average_energy).powi(2);
+                    let spatial_factor = ((x * x + y * y).sqrt() / 1000.0).sin();
+                    let size_factor = size / 10.0;
+                    (energy_variance, spatial_factor, size_factor)
+                })
+                .collect();
 
-            if energy_variance > 10.0 {
-                // Increased threshold
+            let total_variance: f64 = resource_stats.par_iter().map(|(variance, _, _)| variance).sum::<f64>() / num_resources as f64;
+            let spatial_balance: f64 = resource_stats.par_iter().map(|(_, spatial, _)| spatial).sum::<f64>() / num_resources as f64;
+            let size_balance: f64 = resource_stats.par_iter().map(|(_, _, size)| size).sum::<f64>() / num_resources as f64;
+
+            // Apply enhanced redistribution based on multiple factors
+            if total_variance > 5.0 || spatial_balance.abs() > 0.1 {
                 self.resources.par_iter_mut().for_each(|resource| {
                     let energy_diff = resource.energy - average_energy;
-                    resource.energy += energy_diff * 0.001; // Reduced from 0.01
+                    let spatial_factor = ((resource.x * resource.x + resource.y * resource.y).sqrt() / 1000.0).sin();
+                    let redistribution = energy_diff * 0.01 + spatial_factor * 0.1;
+                    resource.energy += redistribution;
                 });
             }
         }
 
-        // Much simplified environmental calculations
+        // Enhanced environmental calculations with more work
         if num_agents > 0 {
-            let environmental_factors: Vec<_> = (0..num_agents.min(100)) // Limit to 100 agents
+            // Calculate environmental factors for all agents, not just 100
+            let environmental_factors: Vec<_> = (0..num_agents)
                 .into_par_iter()
                 .map(|i| {
                     let x = (i as f64 * 0.1) % self.width;
                     let y = (i as f64 * 0.1) % self.height;
-                    let time_factor = self.time * 0.0001; // Reduced from 0.001
-                    let noise = (x * 0.001 + time_factor).sin() * (y * 0.001 + time_factor).cos(); // Much reduced frequency
-                    noise
+                    let time_factor = self.time * 0.001;
+                    
+                    // Multiple environmental calculations
+                    let noise1 = (x * 0.01 + time_factor).sin() * (y * 0.01 + time_factor).cos();
+                    let noise2 = (x * 0.005 + time_factor * 0.5).cos() * (y * 0.005 + time_factor * 0.5).sin();
+                    let noise3 = (x * 0.02 + time_factor * 2.0).sin() * (y * 0.02 + time_factor * 2.0).sin();
+                    
+                    let combined_noise = noise1 * 0.5 + noise2 * 0.3 + noise3 * 0.2;
+                    combined_noise
                 })
                 .collect();
 
-            // Apply environmental effects in parallel - much smaller effect
+            // Apply enhanced environmental effects in parallel
             self.agents
                 .par_iter_mut()
                 .enumerate()
                 .for_each(|(i, agent)| {
                     if i < environmental_factors.len() {
                         let factor = environmental_factors[i];
-                        agent.energy += factor * 0.00001; // Reduced from 0.0001 - much smaller effect
+                        agent.energy += factor * 0.0001; // Increased effect
+                        
+                        // Also affect movement slightly
+                        agent.dx += factor * 0.00001;
+                        agent.dy += factor * 0.00001;
                     }
                 });
+        }
+
+        // Additional parallel work: genetic analysis and fitness calculations
+        if num_agents > 0 {
+            let fitness_data: Vec<_> = self
+                .agents
+                .par_iter()
+                .map(|agent| {
+                    let fitness = agent.genes.get_fitness_score();
+                    let age_factor = agent.age / 1000.0;
+                    let energy_factor = agent.energy / 100.0;
+                    let generation_factor = agent.generation as f64;
+                    
+                    (fitness, age_factor, energy_factor, generation_factor)
+                })
+                .collect();
+
+            // Calculate population statistics in parallel
+            let total_fitness: f64 = fitness_data.par_iter().map(|(fitness, _, _, _)| fitness).sum();
+            let average_age: f64 = fitness_data.par_iter().map(|(_, age, _, _)| age).sum::<f64>() / num_agents as f64;
+            let average_energy: f64 = fitness_data.par_iter().map(|(_, _, energy, _)| energy).sum::<f64>() / num_agents as f64;
+            let max_generation: f64 = fitness_data.par_iter().map(|(_, _, _, gen)| *gen).reduce(|| 0.0, |a, b| a.max(b));
+
+            // Apply population-wide effects based on statistics
+            if total_fitness > 0.0 {
+                let fitness_factor = total_fitness / (num_agents as f64 * 10.0);
+                self.agents.par_iter_mut().for_each(|agent| {
+                    agent.energy += fitness_factor * 0.001;
+                });
+            }
         }
     }
 
