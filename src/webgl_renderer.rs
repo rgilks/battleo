@@ -424,6 +424,10 @@ void main() {
     }
 
     pub fn update_agents(&mut self, agents: &[Agent]) {
+        // Clear previous data
+        self.agent_positions.clear();
+
+        // Set count based on actual data
         self.agent_count = agents.len() as u32;
 
         // Debug: Log agent count only occasionally
@@ -473,11 +477,11 @@ void main() {
                 let (hue, saturation, lightness) = if agent.is_dying {
                     match agent.death_reason {
                         Some(DeathReason::Starvation) => (0.0, 0.8, 0.3), // Dark red for starvation
-                        Some(DeathReason::OldAge) => (30.0, 0.6, 0.4), // Orange for old age
+                        Some(DeathReason::OldAge) => (30.0, 0.6, 0.4),    // Orange for old age
                         Some(DeathReason::KilledByPredator) => (0.0, 1.0, 0.2), // Bright red for predation
                         Some(DeathReason::Combat) => (15.0, 0.9, 0.3), // Red-orange for combat
                         Some(DeathReason::NaturalCauses) => (60.0, 0.5, 0.4), // Yellow for natural causes
-                        None => (0.0, 0.7, 0.3), // Default dark red
+                        None => (0.0, 0.7, 0.3),                              // Default dark red
                     }
                 } else {
                     let base_hue = if is_predator {
@@ -496,7 +500,8 @@ void main() {
                     };
 
                     let base_lightness = if is_predator {
-                        0.6 + agent.energy * 0.003 + agent.genes.attack_power * 0.1 // Predators brighter
+                        0.6 + agent.energy * 0.003 + agent.genes.attack_power * 0.1
+                    // Predators brighter
                     } else {
                         0.5 + agent.energy * 0.004 // Prey normal brightness
                     };
@@ -549,6 +554,23 @@ void main() {
             }
         }
 
+        // Safety check: ensure data size matches expected count
+        let expected_bytes_per_agent = 28; // 2 pos + 3 color + 1 size + 1 energy = 7 floats * 4 bytes
+        let expected_total_bytes = self.agent_count as usize * expected_bytes_per_agent;
+
+        if agent_data.len() != expected_total_bytes {
+            web_sys::console::warn_1(
+                &format!(
+                    "Agent buffer size mismatch: expected {} bytes, got {} bytes",
+                    expected_total_bytes,
+                    agent_data.len()
+                )
+                .into(),
+            );
+            // Adjust count to match actual data
+            self.agent_count = (agent_data.len() / expected_bytes_per_agent) as u32;
+        }
+
         self.gl.bind_buffer(
             WebGlRenderingContext::ARRAY_BUFFER,
             Some(&self.agent_buffer),
@@ -561,6 +583,11 @@ void main() {
     }
 
     pub fn update_resources(&mut self, resources: &[Resource]) {
+        // Clear previous data
+        self.resource_positions.clear();
+        self.resource_growth_states.clear();
+
+        // Set count based on actual data
         self.resource_count = resources.len() as u32;
 
         // Debug: Log resource count only occasionally
@@ -624,6 +651,23 @@ void main() {
                 resource_data.extend_from_slice(&growth_state.to_le_bytes());
                 self.resource_growth_states.push(growth_state);
             }
+        }
+
+        // Safety check: ensure data size matches expected count
+        let expected_bytes_per_resource = 28; // 2 pos + 3 color + 1 energy + 1 growth = 7 floats * 4 bytes
+        let expected_total_bytes = self.resource_count as usize * expected_bytes_per_resource;
+
+        if resource_data.len() != expected_total_bytes {
+            web_sys::console::warn_1(
+                &format!(
+                    "Resource buffer size mismatch: expected {} bytes, got {} bytes",
+                    expected_total_bytes,
+                    resource_data.len()
+                )
+                .into(),
+            );
+            // Adjust count to match actual data
+            self.resource_count = (resource_data.len() / expected_bytes_per_resource) as u32;
         }
 
         self.gl.bind_buffer(
@@ -822,6 +866,12 @@ void main() {
             return;
         }
 
+        // Safety check: ensure we have valid data
+        if self.resource_positions.len() == 0 {
+            web_sys::console::warn_1(&"No resource positions available for rendering".into());
+            return;
+        }
+
         // Clear any previous errors
         self.gl.get_error();
 
@@ -917,6 +967,12 @@ void main() {
             return;
         }
 
+        // Safety check: ensure we have valid data
+        if self.agent_positions.len() == 0 {
+            web_sys::console::warn_1(&"No agent positions available for rendering".into());
+            return;
+        }
+
         // Clear any previous errors
         self.gl.get_error();
 
@@ -945,7 +1001,7 @@ void main() {
             2,
             WebGlRenderingContext::FLOAT,
             false,
-            32, // 2 floats for position + 3 floats for color + 1 float for size + 1 float for energy
+            28, // 2 floats for position + 3 floats for color + 1 float for size + 1 float for energy
             0,
         );
 
@@ -957,7 +1013,7 @@ void main() {
             3,
             WebGlRenderingContext::FLOAT,
             false,
-            32,
+            28,
             8,
         );
 
@@ -969,7 +1025,7 @@ void main() {
             1,
             WebGlRenderingContext::FLOAT,
             false,
-            32,
+            28,
             20,
         );
 
@@ -981,7 +1037,7 @@ void main() {
             1,
             WebGlRenderingContext::FLOAT,
             false,
-            32,
+            28,
             24,
         );
 
@@ -993,24 +1049,24 @@ void main() {
     fn calculate_resource_growth(&self, index: usize, resource: &Resource) -> f32 {
         // Calculate growth state based on energy and fade states
         let base_growth = (resource.energy / 100.0).min(1.0) as f32;
-        
+
         // Apply spawn fade-in
         let spawn_factor = if resource.is_spawning {
             resource.spawn_fade as f32
         } else {
             1.0
         };
-        
+
         // Apply depletion fade-out
         let deplete_factor = if resource.is_depleting {
             1.0 - resource.deplete_fade as f32
         } else {
             1.0
         };
-        
+
         // Combine all factors
         let growth_state = base_growth * spawn_factor * deplete_factor;
-        
+
         // Ensure minimum visibility during spawn
         growth_state.max(0.1)
     }

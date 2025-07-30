@@ -2,13 +2,12 @@ use crate::agent::Agent;
 use crate::genes::Genes;
 use crate::resource::Resource;
 use rand::prelude::*;
-use rand_distr::{Normal, Uniform};
 use rayon::prelude::*;
 use serde::Serialize;
-use std::sync::{Arc, Mutex, Once};
-use wasm_bindgen_rayon::init_thread_pool;
+use std::sync::Arc;
 
-static INIT: Once = Once::new();
+static mut THREAD_POOL_AVAILABLE: bool = false;
+static mut RAYON_INITIALIZED: bool = false;
 
 #[derive(Clone, Serialize)]
 pub struct SimulationStats {
@@ -42,11 +41,17 @@ pub struct Simulation {
 }
 
 impl Simulation {
+    pub fn is_rayon_available() -> bool {
+        unsafe { THREAD_POOL_AVAILABLE && RAYON_INITIALIZED }
+    }
+
+    pub fn set_rayon_initialized(initialized: bool) {
+        unsafe { RAYON_INITIALIZED = initialized; }
+    }
+
     pub fn new(width: f64, height: f64) -> Self {
-        // Initialize thread pool for WebAssembly only once
-        INIT.call_once(|| {
-            let _ = init_thread_pool(8); // Use 8 threads for WebAssembly
-        });
+        // Note: Thread pool initialization is handled separately via the ParallelProcessor
+        // This prevents recursive initialization issues during simulation construction
 
         // Initialize spatial grid for efficient neighbor lookups
         let grid_cell_size = 50.0; // Cell size for spatial partitioning
@@ -147,8 +152,16 @@ impl Simulation {
         // Update spatial grid for efficient neighbor lookups
         self.update_spatial_grid();
 
-        // Update resources in parallel
-        self.update_resources_parallel(delta_time);
+        // Update resources
+        if Self::is_rayon_available() {
+            self.resources.par_iter_mut().for_each(|resource| {
+                resource.update(delta_time);
+            });
+        } else {
+            for resource in self.resources.iter_mut() {
+                resource.update(delta_time);
+            }
+        }
 
         // Spawn new resources at a reasonable rate
         self.resource_spawn_timer += delta_time;
@@ -158,49 +171,155 @@ impl Simulation {
             self.resource_spawn_timer = 0.0;
         }
 
-        // Update agents with parallel processing
-        self.update_agents_parallel(delta_time);
+        // Update agents
+        if Self::is_rayon_available() {
+            let resources = Arc::new(self.resources.clone());
+            let agent_updates: Vec<_> = self
+                .agents
+                .par_iter_mut()
+                .enumerate()
+                .map(|(i, agent)| {
+                    let consumed =
+                        agent.update(delta_time, &resources, &[], self.width, self.height);
+                    (i, consumed)
+                })
+                .collect();
+
+            // Mark consumed resources for depletion
+            for (_, consumed) in agent_updates {
+                if let Some(index) = consumed {
+                    if index < self.resources.len() {
+                        self.resources[index].is_depleting = true;
+                        self.resources[index].deplete_fade = 0.0;
+                    }
+                }
+            }
+        } else {
+            for agent in self.agents.iter_mut() {
+                let consumed =
+                    agent.update(delta_time, &self.resources, &[], self.width, self.height);
+                if let Some(index) = consumed {
+                    if index < self.resources.len() {
+                        self.resources[index].is_depleting = true;
+                        self.resources[index].deplete_fade = 0.0;
+                    }
+                }
+            }
+        }
 
         // Handle reproduction in parallel
-        self.handle_reproduction_parallel();
+        let safe_population_threshold = (self.max_agents as f64 * 0.8) as usize;
+
+        if self.agents.len() >= safe_population_threshold {
+            return; // Don't reproduce if population is too high
+        }
+
+        let population_growth_rate = self.agents.len() as f64 / self.max_agents as f64;
+        if population_growth_rate > 0.6 {
+            return; // Don't reproduce if population is already substantial
+        }
+
+        // Handle reproduction
+        if Self::is_rayon_available() {
+            // Process reproduction in parallel
+            let reproduction_results: Vec<_> = self
+                .agents
+                .par_iter()
+                .filter_map(|agent| {
+                    if agent.can_reproduce() {
+                        // Find a suitable mate nearby
+                        let potential_mates: Vec<_> = self
+                            .agents
+                            .iter()
+                            .filter(|other| {
+                                other.id() != agent.id()
+                                    && agent.distance_to(other.x, other.y) < 20.0
+                                    && other.energy > 50.0
+                                    && other.can_reproduce()
+                            })
+                            .collect();
+
+                        if let Some(mate) = potential_mates.choose(&mut thread_rng()) {
+                            // Additional check: only reproduce if we won't exceed max agents
+                            if self.agents.len() < self.max_agents {
+                                // Random chance to reproduce (50% chance)
+                                if thread_rng().gen::<f64>() < 0.5 {
+                                    Some(agent.create_offspring(mate))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            self.agents.extend(reproduction_results);
+        } else {
+            let mut new_agents = Vec::new();
+            let mut rng = thread_rng();
+            for agent in self.agents.iter() {
+                if agent.can_reproduce() {
+                    // Find a suitable mate nearby
+                    let potential_mates: Vec<_> = self
+                        .agents
+                        .iter()
+                        .filter(|other| {
+                            other.id() != agent.id()
+                                && agent.distance_to(other.x, other.y) < 20.0
+                                && other.energy > 50.0
+                                && other.can_reproduce()
+                        })
+                        .collect();
+
+                    if let Some(mate) = potential_mates.choose(&mut rng) {
+                        // Additional check: only reproduce if we won't exceed max agents
+                        if self.agents.len() + new_agents.len() < self.max_agents {
+                            // Random chance to reproduce (50% chance)
+                            if rng.gen::<f64>() < 0.5 {
+                                new_agents.push(agent.create_offspring(mate));
+                            }
+                        }
+                    }
+                }
+            }
+            self.agents.extend(new_agents);
+        }
 
         // Clean up dead agents
-        self.cleanup_dead_agents();
+        self.agents.retain(|agent| agent.is_alive());
 
         // Clean up fully depleted resources
-        self.cleanup_depleted_resources();
+        self.resources
+            .retain(|resource| !resource.is_depleting || resource.deplete_fade < 1.0);
 
         // Add some complex calculations to utilize CPU cores
         self.perform_complex_calculations();
     }
 
-    fn update_resources_parallel(&mut self, delta_time: f64) {
-        // Efficient parallel resource updates
-        self.resources.par_iter_mut().for_each(|resource| {
+    fn update_resources_sequential(&mut self, delta_time: f64) {
+        // Sequential resource updates
+        for resource in self.resources.iter_mut() {
             resource.update(delta_time);
-        });
+        }
     }
 
-    fn update_agents_parallel(&mut self, delta_time: f64) {
-        // Create shared references for parallel processing
-        let resources = Arc::new(self.resources.clone());
+    fn update_agents_sequential(&mut self, delta_time: f64) {
+        // Sequential agent processing
+        let mut consumed_indices = Vec::new();
 
-        // Efficient parallel agent processing
-        let agent_updates: Vec<_> = self
-            .agents
-            .par_iter_mut()
-            .enumerate()
-            .map(|(i, agent)| {
-                let consumed = agent.update(delta_time, &resources, &[], self.width, self.height);
-                (i, consumed)
-            })
-            .collect();
-
-        // Collect consumed resources in parallel
-        let consumed_indices: Vec<_> = agent_updates
-            .par_iter()
-            .filter_map(|(_, consumed)| *consumed)
-            .collect();
+        for agent in self.agents.iter_mut() {
+            let consumed = agent.update(delta_time, &self.resources, &[], self.width, self.height);
+            if let Some(index) = consumed {
+                consumed_indices.push(index);
+            }
+        }
 
         // Mark consumed resources for depletion (let them fade out instead of removing immediately)
         for &index in &consumed_indices {
@@ -228,49 +347,31 @@ impl Simulation {
             return; // Don't reproduce if population is already substantial
         }
 
-        // Process reproduction in parallel
-        let reproduction_results: Vec<_> = self
-            .agents
-            .par_iter()
-            .filter_map(|agent| {
-                if agent.can_reproduce() {
-                    // Find a suitable mate nearby
-                    let potential_mates: Vec<_> = self
-                        .agents
-                        .iter()
-                        .filter(|other| {
-                            other.id() != agent.id()
-                                && agent.distance_to(other.x, other.y) < 20.0
-                                && other.energy > 50.0 // Increased from 30.0
-                                && other.can_reproduce()
-                        })
-                        .collect();
+        // Process reproduction sequentially
+        let mut rng = thread_rng();
+        for agent in self.agents.iter() {
+            if agent.can_reproduce() {
+                // Find a suitable mate nearby
+                let potential_mates: Vec<_> = self
+                    .agents
+                    .iter()
+                    .filter(|other| {
+                        other.id() != agent.id()
+                            && agent.distance_to(other.x, other.y) < 20.0
+                            && other.energy > 50.0 // Increased from 30.0
+                            && other.can_reproduce()
+                    })
+                    .collect();
 
-                    if let Some(mate) = potential_mates.choose(&mut thread_rng()) {
-                        // Additional check: only reproduce if we won't exceed max agents
-                        if self.agents.len() + new_agents.len() < self.max_agents {
-                            // Random chance to reproduce (50% chance)
-                            if thread_rng().gen::<f64>() < 0.5 {
-                                Some(agent.create_offspring(mate))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
+                if let Some(mate) = potential_mates.choose(&mut rng) {
+                    // Additional check: only reproduce if we won't exceed max agents
+                    if self.agents.len() + new_agents.len() < self.max_agents {
+                        // Random chance to reproduce (50% chance)
+                        if rng.gen::<f64>() < 0.5 {
+                            new_agents.push(agent.create_offspring(mate));
                         }
-                    } else {
-                        None
                     }
-                } else {
-                    None
                 }
-            })
-            .collect();
-
-        // Add new agents
-        for new_agent in reproduction_results {
-            if self.agents.len() + new_agents.len() < self.max_agents {
-                new_agents.push(new_agent);
             }
         }
 
@@ -543,7 +644,7 @@ impl Simulation {
             };
         }
 
-        // Calculate statistics in parallel
+        // Calculate statistics
         let (
             total_energy,
             total_age,
@@ -555,11 +656,65 @@ impl Simulation {
             total_kills,
             max_generation,
             total_fitness,
-        ) = self
-            .agents
-            .par_iter()
-            .fold(
-                || (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0),
+        ) = if Self::is_rayon_available() {
+            // Parallel processing with wasm_bindgen_rayon
+            self.agents
+                .par_iter()
+                .fold(
+                    || (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0),
+                    |(
+                        energy,
+                        age,
+                        speed,
+                        size,
+                        aggression,
+                        sense_range,
+                        efficiency,
+                        kills,
+                        gen,
+                        fitness,
+                    ),
+                     agent| {
+                        let agent_fitness = agent.energy
+                            * agent.genes.speed
+                            * agent.genes.size
+                            * agent.genes.aggression;
+                        (
+                            energy + agent.energy,
+                            age + agent.age,
+                            speed + agent.genes.speed,
+                            size + agent.genes.size,
+                            aggression + agent.genes.aggression,
+                            sense_range + agent.genes.sense_range,
+                            efficiency + agent.genes.energy_efficiency,
+                            kills + agent.kills,
+                            gen.max(agent.generation),
+                            fitness + agent_fitness,
+                        )
+                    },
+                )
+                .reduce(
+                    || (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0),
+                    |(e1, a1, s1, sz1, ag1, sr1, ef1, k1, g1, f1),
+                     (e2, a2, s2, sz2, ag2, sr2, ef2, k2, g2, f2)| {
+                        (
+                            e1 + e2,
+                            a1 + a2,
+                            s1 + s2,
+                            sz1 + sz2,
+                            ag1 + ag2,
+                            sr1 + sr2,
+                            ef1 + ef2,
+                            k1 + k2,
+                            g1.max(g2),
+                            f1 + f2,
+                        )
+                    },
+                )
+        } else {
+            // Sequential processing for WebAssembly compatibility
+            self.agents.iter().fold(
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0),
                 |(
                     energy,
                     age,
@@ -591,24 +746,7 @@ impl Simulation {
                     )
                 },
             )
-            .reduce(
-                || (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0.0),
-                |(e1, a1, s1, sz1, ag1, sr1, ef1, k1, g1, f1),
-                 (e2, a2, s2, sz2, ag2, sr2, ef2, k2, g2, f2)| {
-                    (
-                        e1 + e2,
-                        a1 + a2,
-                        s1 + s2,
-                        sz1 + sz2,
-                        ag1 + ag2,
-                        sr1 + sr2,
-                        ef1 + ef2,
-                        k1 + k2,
-                        g1.max(g2),
-                        f1 + f2,
-                    )
-                },
-            );
+        };
 
         SimulationStats {
             agent_count,
