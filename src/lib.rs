@@ -1,9 +1,13 @@
+use crate::agent::Agent;
+use crate::resource::Resource;
 use rand::prelude::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
 
 pub mod agent;
+pub mod ecs;
+pub mod ecs_simulation;
 pub mod genes;
 pub mod headless_simulation;
 pub mod resource;
@@ -11,12 +15,12 @@ pub mod simulation;
 pub mod test_harness;
 pub mod webgl_renderer;
 
-use simulation::Simulation;
+use ecs_simulation::EcsSimulation;
 use webgl_renderer::WebGlRenderer;
 
 #[wasm_bindgen]
 pub struct BattleSimulation {
-    simulation: Simulation,
+    simulation: EcsSimulation,
     canvas: HtmlCanvasElement,
     webgl_renderer: Option<WebGlRenderer>,
     is_running: bool,
@@ -49,7 +53,7 @@ impl BattleSimulation {
         canvas.set_height(canvas_height);
 
         // Create simulation with canvas dimensions
-        let simulation = Simulation::new(canvas_width as f64, canvas_height as f64);
+        let simulation = EcsSimulation::new(canvas_width as f64, canvas_height as f64);
 
         // Try to initialize WebGL
         let webgl_renderer = match WebGlRenderer::new(canvas.clone()) {
@@ -106,11 +110,11 @@ impl BattleSimulation {
     }
 
     pub fn is_rayon_available(&self) -> bool {
-        simulation::Simulation::is_rayon_available()
+        ecs_simulation::EcsSimulation::is_rayon_available()
     }
 
     pub fn set_rayon_initialized(&self, initialized: bool) {
-        simulation::Simulation::set_rayon_initialized(initialized);
+        ecs_simulation::EcsSimulation::set_rayon_initialized(initialized);
     }
 
     pub fn force_webgl(&mut self) -> bool {
@@ -160,9 +164,109 @@ impl BattleSimulation {
 
     fn render_webgl(&mut self) {
         if let Some(ref mut renderer) = self.webgl_renderer {
-            // Clone the data to avoid borrowing conflicts
-            let agents = self.simulation.agents.clone();
-            let resources = self.simulation.resources.clone();
+            // Get agents and resources from ECS simulation
+            let agents = self.simulation.agents();
+            let resources = self.simulation.resources();
+
+            // Convert LegacyAgent to Agent for renderer
+            let agents: Vec<Agent> = agents
+                .into_iter()
+                .map(|legacy_agent| Agent {
+                    x: legacy_agent.x,
+                    y: legacy_agent.y,
+                    dx: legacy_agent.dx,
+                    dy: legacy_agent.dy,
+                    energy: legacy_agent.energy,
+                    max_energy: legacy_agent.max_energy,
+                    age: legacy_agent.age,
+                    genes: crate::genes::Genes {
+                        speed: legacy_agent.genes.speed,
+                        sense_range: legacy_agent.genes.sense_range,
+                        size: legacy_agent.genes.size,
+                        energy_efficiency: legacy_agent.genes.energy_efficiency,
+                        reproduction_threshold: legacy_agent.genes.reproduction_threshold,
+                        mutation_rate: legacy_agent.genes.mutation_rate,
+                        aggression: legacy_agent.genes.aggression,
+                        color_hue: legacy_agent.genes.color_hue,
+                        is_predator: legacy_agent.genes.is_predator,
+                        hunting_speed: legacy_agent.genes.hunting_speed,
+                        attack_power: legacy_agent.genes.attack_power,
+                        defense: legacy_agent.genes.defense,
+                        stealth: legacy_agent.genes.stealth,
+                        pack_mentality: legacy_agent.genes.pack_mentality,
+                        territory_size: legacy_agent.genes.territory_size,
+                        metabolism: legacy_agent.genes.metabolism,
+                        intelligence: legacy_agent.genes.intelligence,
+                        stamina: legacy_agent.genes.stamina,
+                    },
+                    target_x: legacy_agent.target_x,
+                    target_y: legacy_agent.target_y,
+                    state: match legacy_agent.state {
+                        ecs_simulation::LegacyAgentState::Seeking => {
+                            crate::agent::AgentState::Seeking
+                        }
+                        ecs_simulation::LegacyAgentState::Hunting => {
+                            crate::agent::AgentState::Hunting
+                        }
+                        ecs_simulation::LegacyAgentState::Feeding => {
+                            crate::agent::AgentState::Feeding
+                        }
+                        ecs_simulation::LegacyAgentState::Reproducing => {
+                            crate::agent::AgentState::Reproducing
+                        }
+                        ecs_simulation::LegacyAgentState::Fighting => {
+                            crate::agent::AgentState::Fighting
+                        }
+                        ecs_simulation::LegacyAgentState::Fleeing => {
+                            crate::agent::AgentState::Fleeing
+                        }
+                    },
+                    last_reproduction: legacy_agent.last_reproduction,
+                    kills: legacy_agent.kills,
+                    generation: legacy_agent.generation,
+                    death_fade: legacy_agent.death_fade,
+                    death_reason: legacy_agent.death_reason.map(|reason| match reason {
+                        ecs_simulation::LegacyDeathReason::Starvation => {
+                            crate::agent::DeathReason::Starvation
+                        }
+                        ecs_simulation::LegacyDeathReason::OldAge => {
+                            crate::agent::DeathReason::OldAge
+                        }
+                        ecs_simulation::LegacyDeathReason::KilledByPredator => {
+                            crate::agent::DeathReason::KilledByPredator
+                        }
+                        ecs_simulation::LegacyDeathReason::Combat => {
+                            crate::agent::DeathReason::Combat
+                        }
+                        ecs_simulation::LegacyDeathReason::NaturalCauses => {
+                            crate::agent::DeathReason::NaturalCauses
+                        }
+                    }),
+                    is_dying: legacy_agent.is_dying,
+                    spawn_fade: legacy_agent.spawn_fade,
+                    spawn_position: legacy_agent.spawn_position,
+                })
+                .collect();
+
+            // Convert LegacyResource to Resource for renderer
+            let resources: Vec<Resource> = resources
+                .into_iter()
+                .map(|legacy_resource| Resource {
+                    x: legacy_resource.x,
+                    y: legacy_resource.y,
+                    energy: legacy_resource.energy,
+                    max_energy: legacy_resource.max_energy,
+                    size: legacy_resource.size,
+                    growth_rate: legacy_resource.growth_rate,
+                    regeneration_rate: legacy_resource.regeneration_rate,
+                    age: legacy_resource.age,
+                    target_energy: legacy_resource.target_energy,
+                    is_spawning: legacy_resource.is_spawning,
+                    spawn_fade: legacy_resource.spawn_fade,
+                    is_depleting: legacy_resource.is_depleting,
+                    deplete_fade: legacy_resource.deplete_fade,
+                })
+                .collect();
 
             renderer.update_agents(&agents);
             renderer.update_resources(&resources);
@@ -218,7 +322,8 @@ impl BattleSimulation {
         );
 
         // Render resources
-        for resource in &self.simulation.resources {
+        let resources = self.simulation.resources();
+        for resource in &resources {
             ctx.set_fill_style(&format!("hsl({}, 70%, 60%)", resource.energy * 120.0).into());
             ctx.begin_path();
             ctx.arc(
@@ -233,7 +338,8 @@ impl BattleSimulation {
         }
 
         // Render agents
-        for agent in &self.simulation.agents {
+        let agents = self.simulation.agents();
+        for agent in &agents {
             let hue = (agent.genes.speed * 100.0 + agent.genes.sense_range * 50.0) % 360.0;
             let saturation = 70.0 + agent.genes.size * 20.0;
             let lightness = 50.0 + agent.energy * 20.0;
@@ -307,6 +413,7 @@ impl ParallelProcessor {
     pub fn initialize(&mut self) -> js_sys::Promise {
         #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon"))]
         {
+            #[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen-rayon"))]
             use wasm_bindgen_rayon::init_thread_pool;
 
             web_sys::console::log_1(
@@ -320,7 +427,7 @@ impl ParallelProcessor {
             // Check if already initialized
             if self.initialized {
                 web_sys::console::warn_1(&"Thread pool already initialized".into());
-                simulation::Simulation::set_rayon_initialized(true);
+                ecs_simulation::EcsSimulation::set_rayon_initialized(true);
                 return js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL);
             }
 
@@ -332,17 +439,17 @@ impl ParallelProcessor {
                     );
                     match result.as_f64() {
                         Some(_) => {
-                            simulation::Simulation::set_rayon_initialized(true);
+                            ecs_simulation::EcsSimulation::set_rayon_initialized(true);
                             web_sys::console::log_1(
                                 &format!("Thread pool initialized with {} workers", worker_count)
                                     .into(),
                             );
                         }
                         None => {
-                            simulation::Simulation::set_rayon_initialized(false);
+                            ecs_simulation::EcsSimulation::set_rayon_initialized(false);
                             web_sys::console::log_1(
-                                    &format!("Failed to initialize thread pool - SharedArrayBuffer may not be available").into(),
-                                );
+                                &format!("Failed to initialize thread pool - SharedArrayBuffer may not be available").into(),
+                            );
                         }
                     }
                 }) as Box<dyn FnMut(JsValue)>);
@@ -376,7 +483,7 @@ impl ParallelProcessor {
         // Fallback initialization that works without SharedArrayBuffer
         web_sys::console::warn_1(&"Using fallback mode - SharedArrayBuffer not available".into());
         self.initialized = true;
-        simulation::Simulation::set_rayon_initialized(false); // Set to false for fallback mode
+        ecs_simulation::EcsSimulation::set_rayon_initialized(false); // Set to false for fallback mode
         let promise = js_sys::Promise::resolve(&wasm_bindgen::JsValue::NULL);
         promise
     }

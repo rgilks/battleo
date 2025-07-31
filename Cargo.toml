@@ -12,9 +12,11 @@ wasm-bindgen-rayon = []
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+wasm-opt-level = "s"
 
 [package.metadata.wasm-pack.profile.dev]
 wasm-opt = false
+wasm-opt-level = "s"
 
 [dependencies]
 wasm-bindgen = "0.2"
@@ -47,7 +49,9 @@ rand = "0.8"
 rand_distr = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
+hecs = "0.10"
 rayon = "1.8"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-rayon = "1.3"
+

@@ -1,4 +1,8 @@
 use crate::agent::Agent;
+use crate::ecs::{
+    Age, AgentState, EcsWorld, Energy, Genes as EcsGenes, Position, Resource as EcsResource, Size,
+    Velocity,
+};
 use crate::genes::Genes;
 use crate::resource::Resource;
 use rand::prelude::*;
@@ -46,7 +50,9 @@ impl Simulation {
     }
 
     pub fn set_rayon_initialized(initialized: bool) {
-        unsafe { RAYON_INITIALIZED = initialized; }
+        unsafe {
+            RAYON_INITIALIZED = initialized;
+        }
     }
 
     pub fn new(width: f64, height: f64) -> Self {
