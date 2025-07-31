@@ -11,7 +11,7 @@ pub struct WebSimulation {
     webgl_renderer: Option<WebGlRenderer>,
     is_running: bool,
     use_webgl: bool,
-    last_frame_time: f64,
+    _last_frame_time: f64,
     frame_count: u32,
 }
 
@@ -80,7 +80,7 @@ impl WebSimulation {
             webgl_renderer,
             is_running: false,
             use_webgl,
-            last_frame_time: 0.0,
+            _last_frame_time: 0.0,
             frame_count: 0,
         })
     }

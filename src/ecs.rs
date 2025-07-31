@@ -1,4 +1,4 @@
-use hecs::{Entity, Query, World};
+use hecs::World;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -584,7 +584,7 @@ impl EcsWorld {
 
     pub fn add_resource(&mut self, x: f64, y: f64) {
         if self.get_resource_count() < self.max_resources {
-            let entity = self.world.spawn((
+            let _entity = self.world.spawn((
                 Position { x, y },
                 Resource {
                     energy: 0.0,

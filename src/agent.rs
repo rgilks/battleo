@@ -305,7 +305,7 @@ impl Agent {
             }
         }
 
-        if let Some((tx, ty, is_agent, target_type)) = best_target {
+        if let Some((tx, ty, is_agent, _target_type)) = best_target {
             self.target_x = Some(tx);
             self.target_y = Some(ty);
             self.state = if is_agent {

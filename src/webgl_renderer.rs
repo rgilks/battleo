@@ -1040,7 +1040,7 @@ void main() {
             .draw_arrays(WebGlRenderingContext::POINTS, 0, self.agent_count as i32);
     }
 
-    fn calculate_resource_growth(&self, index: usize, resource: &Resource) -> f32 {
+    fn calculate_resource_growth(&self, _index: usize, resource: &Resource) -> f32 {
         // Calculate growth state based on energy and fade states
         let base_growth = (resource.energy / 100.0).min(1.0) as f32;
 

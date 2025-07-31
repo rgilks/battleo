@@ -1,6 +1,6 @@
 use crate::agent::{Agent, AgentState};
 use crate::ecs::{
-    Age, AgentStateEnum, EcsWorld, Energy, Genes as EcsGenes, Position, Resource as EcsResource,
+    AgentStateEnum, EcsWorld, Energy, Genes as EcsGenes, Position, Resource as EcsResource,
     Size, Velocity,
 };
 use crate::genes::Genes;
@@ -8,7 +8,6 @@ use crate::resource::Resource;
 use rand::prelude::*;
 use rayon::prelude::*;
 use serde::Serialize;
-use std::sync::Arc;
 
 static mut THREAD_POOL_AVAILABLE: bool = false;
 static mut RAYON_INITIALIZED: bool = false;
