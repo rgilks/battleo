@@ -10,21 +10,20 @@ pub mod ecs;
 pub mod ecs_simulation;
 pub mod genes;
 pub mod headless_simulation;
+pub mod headless_simulation_v2;
 pub mod resource;
 pub mod simulation;
+pub mod simulation_core;
 pub mod test_harness;
 pub mod webgl_renderer;
+pub mod web_simulation;
 
-use ecs_simulation::EcsSimulation;
+use simulation_core::UnifiedSimulation;
 use webgl_renderer::WebGlRenderer;
 
 #[wasm_bindgen]
 pub struct BattleSimulation {
-    simulation: EcsSimulation,
-    canvas: HtmlCanvasElement,
-    webgl_renderer: Option<WebGlRenderer>,
-    is_running: bool,
-    use_webgl: bool,
+    web_simulation: web_simulation::WebSimulation,
 }
 
 #[wasm_bindgen]
@@ -33,341 +32,62 @@ impl BattleSimulation {
     pub fn new(canvas_id: &str) -> Result<BattleSimulation, JsValue> {
         console_error_panic_hook::set_once();
 
-        let window = web_sys::window().unwrap();
-        let document = window.document().unwrap();
-        let canvas = document
-            .get_element_by_id(canvas_id)
-            .unwrap()
-            .dyn_into::<HtmlCanvasElement>()?;
-
-        // Set canvas size based on available space
-        let window = web_sys::window().unwrap();
-        let screen_width = window.inner_width().unwrap().as_f64().unwrap();
-        let screen_height = window.inner_height().unwrap().as_f64().unwrap();
-
-        // Calculate canvas size (leave space for sidebar)
-        let canvas_width = (screen_width - 250.0).max(800.0) as u32;
-        let canvas_height = (screen_height - 100.0).max(600.0) as u32;
-
-        canvas.set_width(canvas_width);
-        canvas.set_height(canvas_height);
-
-        // Create simulation with canvas dimensions
-        let simulation = EcsSimulation::new(canvas_width as f64, canvas_height as f64);
-
-        // Try to initialize WebGL
-        let webgl_renderer = match WebGlRenderer::new(canvas.clone()) {
-            Ok(renderer) => Some(renderer),
-            Err(e) => {
-                web_sys::console::log_1(&format!("WebGL initialization failed: {:?}", e).into());
-                None
-            }
-        };
-        let use_webgl = webgl_renderer.is_some();
-
-        if use_webgl {
-            web_sys::console::log_1(&"WebGL initialized successfully!".into());
-        } else {
-            web_sys::console::log_1(&"Using Canvas 2D rendering (WebGL not available)".into());
-        }
+        let web_simulation = web_simulation::WebSimulation::new(canvas_id)?;
 
         Ok(BattleSimulation {
-            simulation,
-            canvas,
-            webgl_renderer,
-            is_running: false,
-            use_webgl,
+            web_simulation,
         })
     }
 
     pub fn start(&mut self) {
-        if !self.is_running {
-            self.is_running = true;
-            self.animate();
-        }
+        self.web_simulation.start();
     }
 
     pub fn stop(&mut self) {
-        self.is_running = false;
+        self.web_simulation.stop();
     }
 
     pub fn step(&mut self) {
-        self.simulation.update();
-        self.render();
+        self.web_simulation.step();
     }
 
     pub fn get_stats(&self) -> JsValue {
-        let stats = self.simulation.get_stats();
-        serde_wasm_bindgen::to_value(&stats).unwrap()
+        self.web_simulation.get_stats()
     }
 
     pub fn get_rendering_mode(&self) -> String {
-        if self.use_webgl {
-            "WebGL".to_string()
-        } else {
-            "Canvas 2D".to_string()
-        }
+        self.web_simulation.get_rendering_mode()
     }
 
     pub fn is_rayon_available(&self) -> bool {
-        ecs_simulation::EcsSimulation::is_rayon_available()
+        self.web_simulation.is_rayon_available()
     }
 
     pub fn set_rayon_initialized(&self, initialized: bool) {
-        ecs_simulation::EcsSimulation::set_rayon_initialized(initialized);
+        self.web_simulation.set_rayon_initialized(initialized);
     }
 
     pub fn force_webgl(&mut self) -> bool {
-        // Try to force WebGL initialization
-        match WebGlRenderer::new(self.canvas.clone()) {
-            Ok(renderer) => {
-                self.webgl_renderer = Some(renderer);
-                self.use_webgl = true;
-                web_sys::console::log_1(&"WebGL forced successfully!".into());
-                true
-            }
-            Err(e) => {
-                web_sys::console::log_1(&format!("Failed to force WebGL: {:?}", e).into());
-                false
-            }
-        }
+        self.web_simulation.force_webgl()
     }
 
     pub fn add_agent(&mut self, x: f64, y: f64) {
-        self.simulation.add_agent(x, y);
+        self.web_simulation.add_agent(x, y);
     }
 
     pub fn add_resource(&mut self, x: f64, y: f64) {
-        self.simulation.add_resource(x, y);
+        self.web_simulation.add_resource(x, y);
     }
 
     pub fn reset(&mut self) {
-        self.simulation.reset();
+        self.web_simulation.reset();
     }
 
     pub fn animate(&mut self) {
-        if !self.is_running {
-            return;
-        }
-
-        self.simulation.update();
-        self.render();
+        self.web_simulation.animate();
     }
 
-    fn render(&mut self) {
-        if self.use_webgl {
-            self.render_webgl();
-        } else {
-            self.render_canvas2d();
-        }
-    }
 
-    fn render_webgl(&mut self) {
-        if let Some(ref mut renderer) = self.webgl_renderer {
-            // Get agents and resources from ECS simulation
-            let agents = self.simulation.agents();
-            let resources = self.simulation.resources();
-
-            // Convert LegacyAgent to Agent for renderer
-            let agents: Vec<Agent> = agents
-                .into_iter()
-                .map(|legacy_agent| Agent {
-                    x: legacy_agent.x,
-                    y: legacy_agent.y,
-                    dx: legacy_agent.dx,
-                    dy: legacy_agent.dy,
-                    energy: legacy_agent.energy,
-                    max_energy: legacy_agent.max_energy,
-                    age: legacy_agent.age,
-                    genes: crate::genes::Genes {
-                        speed: legacy_agent.genes.speed,
-                        sense_range: legacy_agent.genes.sense_range,
-                        size: legacy_agent.genes.size,
-                        energy_efficiency: legacy_agent.genes.energy_efficiency,
-                        reproduction_threshold: legacy_agent.genes.reproduction_threshold,
-                        mutation_rate: legacy_agent.genes.mutation_rate,
-                        aggression: legacy_agent.genes.aggression,
-                        color_hue: legacy_agent.genes.color_hue,
-                        is_predator: legacy_agent.genes.is_predator,
-                        hunting_speed: legacy_agent.genes.hunting_speed,
-                        attack_power: legacy_agent.genes.attack_power,
-                        defense: legacy_agent.genes.defense,
-                        stealth: legacy_agent.genes.stealth,
-                        pack_mentality: legacy_agent.genes.pack_mentality,
-                        territory_size: legacy_agent.genes.territory_size,
-                        metabolism: legacy_agent.genes.metabolism,
-                        intelligence: legacy_agent.genes.intelligence,
-                        stamina: legacy_agent.genes.stamina,
-                    },
-                    target_x: legacy_agent.target_x,
-                    target_y: legacy_agent.target_y,
-                    state: match legacy_agent.state {
-                        ecs_simulation::LegacyAgentState::Seeking => {
-                            crate::agent::AgentState::Seeking
-                        }
-                        ecs_simulation::LegacyAgentState::Hunting => {
-                            crate::agent::AgentState::Hunting
-                        }
-                        ecs_simulation::LegacyAgentState::Feeding => {
-                            crate::agent::AgentState::Feeding
-                        }
-                        ecs_simulation::LegacyAgentState::Reproducing => {
-                            crate::agent::AgentState::Reproducing
-                        }
-                        ecs_simulation::LegacyAgentState::Fighting => {
-                            crate::agent::AgentState::Fighting
-                        }
-                        ecs_simulation::LegacyAgentState::Fleeing => {
-                            crate::agent::AgentState::Fleeing
-                        }
-                    },
-                    last_reproduction: legacy_agent.last_reproduction,
-                    kills: legacy_agent.kills,
-                    generation: legacy_agent.generation,
-                    death_fade: legacy_agent.death_fade,
-                    death_reason: legacy_agent.death_reason.map(|reason| match reason {
-                        ecs_simulation::LegacyDeathReason::Starvation => {
-                            crate::agent::DeathReason::Starvation
-                        }
-                        ecs_simulation::LegacyDeathReason::OldAge => {
-                            crate::agent::DeathReason::OldAge
-                        }
-                        ecs_simulation::LegacyDeathReason::KilledByPredator => {
-                            crate::agent::DeathReason::KilledByPredator
-                        }
-                        ecs_simulation::LegacyDeathReason::Combat => {
-                            crate::agent::DeathReason::Combat
-                        }
-                        ecs_simulation::LegacyDeathReason::NaturalCauses => {
-                            crate::agent::DeathReason::NaturalCauses
-                        }
-                    }),
-                    is_dying: legacy_agent.is_dying,
-                    spawn_fade: legacy_agent.spawn_fade,
-                    spawn_position: legacy_agent.spawn_position,
-                })
-                .collect();
-
-            // Convert LegacyResource to Resource for renderer
-            let resources: Vec<Resource> = resources
-                .into_iter()
-                .map(|legacy_resource| Resource {
-                    x: legacy_resource.x,
-                    y: legacy_resource.y,
-                    energy: legacy_resource.energy,
-                    max_energy: legacy_resource.max_energy,
-                    size: legacy_resource.size,
-                    growth_rate: legacy_resource.growth_rate,
-                    regeneration_rate: legacy_resource.regeneration_rate,
-                    age: legacy_resource.age,
-                    target_energy: legacy_resource.target_energy,
-                    is_spawning: legacy_resource.is_spawning,
-                    spawn_fade: legacy_resource.spawn_fade,
-                    is_depleting: legacy_resource.is_depleting,
-                    deplete_fade: legacy_resource.deplete_fade,
-                })
-                .collect();
-
-            renderer.update_agents(&agents);
-            renderer.update_resources(&resources);
-            renderer.render();
-
-            // Debug: Log rendering info only occasionally
-            static mut FRAME_COUNT: u32 = 0;
-            unsafe {
-                FRAME_COUNT += 1;
-                if FRAME_COUNT % 60 == 0 {
-                    // Log once per second at 60fps
-                    web_sys::console::log_1(
-                        &format!(
-                            "WebGL Rendering: {} agents, {} resources",
-                            agents.len(),
-                            resources.len()
-                        )
-                        .into(),
-                    );
-                }
-            }
-        } else {
-            web_sys::console::log_1(&"WebGL renderer is None!".into());
-        }
-    }
-
-    fn render_canvas2d(&self) {
-        // Fallback to Canvas 2D rendering
-        web_sys::console::log_1(&"Using Canvas 2D rendering".into());
-        let ctx = match self.canvas.get_context("2d") {
-            Ok(Some(context)) => match context.dyn_into::<CanvasRenderingContext2d>() {
-                Ok(ctx) => ctx,
-                Err(_) => return,
-            },
-            _ => return,
-        };
-
-        // Clear canvas
-        ctx.clear_rect(
-            0.0,
-            0.0,
-            self.canvas.width() as f64,
-            self.canvas.height() as f64,
-        );
-
-        // Render background
-        ctx.set_fill_style(&"#1a1a2e".into());
-        ctx.fill_rect(
-            0.0,
-            0.0,
-            self.canvas.width() as f64,
-            self.canvas.height() as f64,
-        );
-
-        // Render resources
-        let resources = self.simulation.resources();
-        for resource in &resources {
-            ctx.set_fill_style(&format!("hsl({}, 70%, 60%)", resource.energy * 120.0).into());
-            ctx.begin_path();
-            ctx.arc(
-                resource.x,
-                resource.y,
-                resource.size,
-                0.0,
-                2.0 * std::f64::consts::PI,
-            )
-            .unwrap();
-            ctx.fill();
-        }
-
-        // Render agents
-        let agents = self.simulation.agents();
-        for agent in &agents {
-            let hue = (agent.genes.speed * 100.0 + agent.genes.sense_range * 50.0) % 360.0;
-            let saturation = 70.0 + agent.genes.size * 20.0;
-            let lightness = 50.0 + agent.energy * 20.0;
-
-            ctx.set_fill_style(&format!("hsl({}, {}%, {}%)", hue, saturation, lightness).into());
-            ctx.begin_path();
-            ctx.arc(
-                agent.x,
-                agent.y,
-                agent.genes.size * 3.0,
-                0.0,
-                2.0 * std::f64::consts::PI,
-            )
-            .unwrap();
-            ctx.fill();
-
-            // Draw direction indicator
-            ctx.set_stroke_style(&"#ffffff".into());
-            ctx.set_line_width(1.0);
-            ctx.begin_path();
-            ctx.move_to(agent.x, agent.y);
-            ctx.line_to(
-                agent.x + agent.dx * agent.genes.size * 4.0,
-                agent.y + agent.dy * agent.genes.size * 4.0,
-            );
-            ctx.stroke();
-        }
-    }
 }
 
 #[wasm_bindgen]
@@ -1133,5 +853,38 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn test_headless_simulation_v2() {
+        use crate::headless_simulation_v2::{HeadlessSimulationConfig, HeadlessSimulationV2};
+        
+        println!("=== Testing Headless Simulation V2 ===");
+        
+        let config = HeadlessSimulationConfig {
+            target_duration_minutes: 0.1, // Very short test
+            speed_multiplier: 10.0,       // 10x faster
+            initial_agents: 10,
+            initial_resources: 20,
+            use_ecs: true,
+            ..Default::default()
+        };
+
+        let mut simulation = HeadlessSimulationV2::new(config);
+        let diagnostics = simulation.run();
+
+        println!("Test completed!");
+        println!("Duration: {:.2}s", diagnostics.duration_seconds);
+        println!("Final agents: {}", diagnostics.final_stats.agent_count);
+        println!("Final resources: {}", diagnostics.final_stats.resource_count);
+        println!("Quality score: {:.3}", diagnostics.simulation_quality_score);
+        println!("Steps per second: {:.1}", diagnostics.steps_per_second);
+
+        // Basic assertions
+        assert!(diagnostics.duration_seconds > 0.0);
+        assert!(diagnostics.total_steps > 0);
+        assert!(diagnostics.steps_per_second > 0.0);
+        
+        println!("Headless Simulation V2 test passed!");
     }
 }

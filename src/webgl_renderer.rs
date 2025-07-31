@@ -685,13 +685,7 @@ void main() {
         // Debug: Log render call only occasionally
         if (self.time * 60.0) as i32 % 60 == 0 {
             // Log once per second
-            web_sys::console::log_1(
-                &format!(
-                    "WebGL Render: {} agents, {} resources, time: {:.2}",
-                    self.agent_count, self.resource_count, self.time
-                )
-                .into(),
-            );
+                    // Removed verbose logging
         }
 
         // Update time for animations with variable speed for more dynamic effects
